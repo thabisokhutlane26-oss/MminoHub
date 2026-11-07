@@ -1,5 +1,7 @@
 package com.mminohub.app;
 
+import android.content.Context;
+
 public class MminoHubRepository {
 
     private static MminoHubRepository instance;
@@ -13,6 +15,9 @@ public class MminoHubRepository {
     private final ArtistEarningsManager earningsManager;
     private final FollowManager followManager;
 
+    private final PlaybackQueue playbackQueue;
+    private MusicPlayerManager musicPlayerManager;
+
     private UserProfile currentUser;
 
     private MminoHubRepository() {
@@ -24,6 +29,8 @@ public class MminoHubRepository {
         notificationManager = new NotificationManager();
         earningsManager = new ArtistEarningsManager();
         followManager = new FollowManager();
+
+        playbackQueue = new PlaybackQueue();
     }
 
     public static synchronized MminoHubRepository getInstance() {
@@ -66,6 +73,23 @@ public class MminoHubRepository {
         return followManager;
     }
 
+    public PlaybackQueue getPlaybackQueue() {
+        return playbackQueue;
+    }
+
+    public synchronized MusicPlayerManager getMusicPlayerManager(
+            Context context
+    ) {
+        if (musicPlayerManager == null) {
+            musicPlayerManager = new MusicPlayerManager(
+                    context.getApplicationContext(),
+                    playbackQueue
+            );
+        }
+
+        return musicPlayerManager;
+    }
+
     public UserProfile getCurrentUser() {
         return currentUser;
     }
@@ -80,5 +104,14 @@ public class MminoHubRepository {
 
     public void clearCurrentUser() {
         currentUser = null;
+    }
+
+    public synchronized void releaseMusicPlayer() {
+        if (musicPlayerManager != null) {
+            musicPlayerManager.release();
+            musicPlayerManager = null;
+        }
+
+        playbackQueue.clear();
     }
 }
