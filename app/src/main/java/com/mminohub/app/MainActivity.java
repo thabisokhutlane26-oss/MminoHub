@@ -2,6 +2,7 @@ package com.mminohub.app;
 
 import android.app.Activity;
 import android.os.Bundle;
+import android.content.Intent;
 import android.graphics.Color;
 import android.graphics.Typeface;
 import android.view.Gravity;
@@ -58,8 +59,6 @@ public class MainActivity extends Activity {
         root.setOrientation(LinearLayout.VERTICAL);
         root.setBackgroundColor(BG);
 
-        // HEADER
-
         LinearLayout header = new LinearLayout(this);
         header.setGravity(Gravity.CENTER_VERTICAL);
         header.setPadding(
@@ -79,7 +78,6 @@ public class MainActivity extends Activity {
         );
 
         header.addView(notification);
-
         root.addView(header);
 
         TextView tagline = text(
@@ -92,8 +90,6 @@ public class MainActivity extends Activity {
         );
 
         root.addView(tagline);
-
-        // MAIN CONTENT
 
         ScrollView scroll = new ScrollView(this);
         scroll.setFillViewport(true);
@@ -158,13 +154,12 @@ public class MainActivity extends Activity {
                 "following"
         );
 
-        // MINI PLAYER
-        // Only appears when a track has been selected.
-
         MusicTrack currentTrack = MminoHubRepository
                 .getInstance()
                 .getPlaybackQueue()
                 .getCurrentTrack();
+
+        miniPlayer = null;
 
         if (currentTrack != null) {
             miniPlayer = new MiniPlayerView(this);
@@ -340,6 +335,16 @@ public class MainActivity extends Activity {
             return;
         }
 
+        if (destination.equals("Discover")) {
+            Intent intent = new Intent(
+                    MainActivity.this,
+                    DiscoverActivity.class
+            );
+
+            startActivity(intent);
+            return;
+        }
+
         String message;
 
         switch (destination) {
@@ -370,12 +375,6 @@ public class MainActivity extends Activity {
 
                 message =
                         "Artists you follow will appear here.";
-                break;
-
-            case "Discover":
-
-                message =
-                        "Discover Basotho songs, albums and artists.";
                 break;
 
             case "Profile":
