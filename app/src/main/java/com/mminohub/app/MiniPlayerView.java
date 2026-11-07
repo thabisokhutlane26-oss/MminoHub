@@ -5,7 +5,6 @@ import android.graphics.Color;
 import android.graphics.Typeface;
 import android.graphics.drawable.GradientDrawable;
 import android.view.Gravity;
-import android.widget.ImageButton;
 import android.widget.LinearLayout;
 import android.widget.TextView;
 
@@ -13,7 +12,7 @@ public class MiniPlayerView extends LinearLayout {
 
     private final TextView titleView;
     private final TextView artistView;
-    private final ImageButton playButton;
+    private final TextView playButton;
 
     private final MusicPlaybackController controller;
 
@@ -24,7 +23,7 @@ public class MiniPlayerView extends LinearLayout {
 
         setOrientation(HORIZONTAL);
         setGravity(Gravity.CENTER_VERTICAL);
-        setPadding(dp(12), dp(8), dp(12), dp(8));
+        setPadding(dp(10), dp(8), dp(10), dp(8));
 
         GradientDrawable background = new GradientDrawable();
         background.setColor(Color.rgb(15, 22, 33));
@@ -44,7 +43,7 @@ public class MiniPlayerView extends LinearLayout {
         LinearLayout information = new LinearLayout(context);
         information.setOrientation(VERTICAL);
         information.setGravity(Gravity.CENTER_VERTICAL);
-        information.setPadding(dp(10), 0, dp(6), 0);
+        information.setPadding(dp(10), 0, dp(4), 0);
 
         titleView = new TextView(context);
         titleView.setText("Nothing playing");
@@ -68,16 +67,12 @@ public class MiniPlayerView extends LinearLayout {
                 1
         ));
 
-        ImageButton previousButton = createButton("⏮");
-        previousButton.setOnClickListener(v -> {
+        addControl("⏮", () -> {
             controller.playPrevious();
             refresh();
         });
 
-        addView(previousButton, new LayoutParams(dp(42), dp(42)));
-
-        playButton = createButton("▶");
-        playButton.setOnClickListener(v -> {
+        playButton = addControl("▶", () -> {
             if (controller.isPlaying()) {
                 controller.pause();
             } else {
@@ -87,46 +82,27 @@ public class MiniPlayerView extends LinearLayout {
             refresh();
         });
 
-        addView(playButton, new LayoutParams(dp(42), dp(42)));
-
-        ImageButton nextButton = createButton("⏭");
-        nextButton.setOnClickListener(v -> {
+        addControl("⏭", () -> {
             controller.playNext();
             refresh();
         });
 
-        addView(nextButton, new LayoutParams(dp(42), dp(42)));
-
         refresh();
     }
 
-    private ImageButton createButton(String symbol) {
-        ImageButton button = new ImageButton(getContext());
+    private TextView addControl(String symbol, Runnable action) {
+        TextView button = new TextView(getContext());
 
-        button.setImageDrawable(null);
-        button.setBackgroundColor(Color.TRANSPARENT);
+        button.setText(symbol);
+        button.setTextColor(Color.WHITE);
+        button.setTextSize(19);
+        button.setGravity(Gravity.CENTER);
+        button.setBackgroundResource(android.R.drawable.list_selector_background);
         button.setContentDescription(symbol);
 
-        TextView label = new TextView(getContext());
-        label.setText(symbol);
-        label.setTextColor(Color.WHITE);
-        label.setTextSize(18);
-        label.setGravity(Gravity.CENTER);
+        addView(button, new LayoutParams(dp(38), dp(44)));
 
-        button.setOnClickListener(null);
-        button.setTag(label);
-
-        return createTextButton(symbol);
-    }
-
-    private ImageButton createTextButton(String symbol) {
-        ImageButton button = new ImageButton(getContext());
-
-        android.graphics.drawable.Drawable drawable =
-                new android.graphics.drawable.ColorDrawable(Color.TRANSPARENT);
-
-        button.setBackground(drawable);
-        button.setContentDescription(symbol);
+        button.setOnClickListener(v -> action.run());
 
         return button;
     }
@@ -144,12 +120,10 @@ public class MiniPlayerView extends LinearLayout {
             artistView.setText(track.getArtist());
         }
 
-        playButton.setImageDrawable(null);
+        playButton.setText(controller.isPlaying() ? "⏸" : "▶");
         playButton.setContentDescription(
                 controller.isPlaying() ? "Pause" : "Play"
         );
-
-        playButton.setTag(controller.isPlaying() ? "⏸" : "▶");
     }
 
     private int dp(float value) {
