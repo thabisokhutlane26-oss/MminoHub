@@ -14,6 +14,8 @@ public class MusicPlaybackService extends Service {
     public static final String ACTION_PLAY = "com.mminohub.app.PLAY";
     public static final String ACTION_PAUSE = "com.mminohub.app.PAUSE";
     public static final String ACTION_STOP = "com.mminohub.app.STOP";
+    public static final String ACTION_NEXT = "com.mminohub.app.NEXT";
+    public static final String ACTION_PREVIOUS = "com.mminohub.app.PREVIOUS";
 
     private static final String CHANNEL_ID = "mminohub_playback";
     private static final int NOTIFICATION_ID = 1001;
@@ -35,33 +37,43 @@ public class MusicPlaybackService extends Service {
 
         String action = intent == null ? null : intent.getAction();
 
-        if (ACTION_PLAY.equals(action)) {
-            startForeground(NOTIFICATION_ID, buildNotification());
+        if (ACTION_STOP.equals(action)) {
+            stopPlaybackService();
+            return START_NOT_STICKY;
+        }
 
-            if (playerManager != null) {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            startForeground(NOTIFICATION_ID, buildNotification());
+        }
+
+        if (playerManager == null) {
+            playerManager = MminoHubRepository.getInstance()
+                    .getMusicPlayerManager(this);
+        }
+
+        if (ACTION_PLAY.equals(action)) {
+            if (!playerManager.isPlaying()) {
                 playerManager.resume();
             }
 
         } else if (ACTION_PAUSE.equals(action)) {
-            if (playerManager != null) {
-                playerManager.pause();
-            }
+            playerManager.pause();
 
-            updateNotification();
+        } else if (ACTION_NEXT.equals(action)) {
+            playerManager.playNext();
 
-        } else if (ACTION_STOP.equals(action)) {
-            stopPlaybackService();
-            return START_NOT_STICKY;
-
-        } else {
-            startForeground(NOTIFICATION_ID, buildNotification());
+        } else if (ACTION_PREVIOUS.equals(action)) {
+            playerManager.playPrevious();
         }
 
-        return START_STICKY;
+        updateNotification();
+
+        return START_NOT_STICKY;
     }
 
     private void createNotificationChannel() {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+
             NotificationChannel channel = new NotificationChannel(
                     CHANNEL_ID,
                     "MminoHub Music Playback",
@@ -79,6 +91,19 @@ public class MusicPlaybackService extends Service {
         }
     }
 
+    private PendingIntent createActionIntent(String action, int requestCode) {
+        Intent intent = new Intent(this, MusicPlaybackService.class);
+        intent.setAction(action);
+
+        return PendingIntent.getService(
+                this,
+                requestCode,
+                intent,
+                PendingIntent.FLAG_UPDATE_CURRENT
+                        | PendingIntent.FLAG_IMMUTABLE
+        );
+    }
+
     private Notification buildNotification() {
 
         Intent openApp = new Intent(this, MainActivity.class);
@@ -91,16 +116,8 @@ public class MusicPlaybackService extends Service {
                         | PendingIntent.FLAG_IMMUTABLE
         );
 
-        Intent pauseIntent = new Intent(this, MusicPlaybackService.class);
-        pauseIntent.setAction(ACTION_PAUSE);
-
-        PendingIntent pausePendingIntent = PendingIntent.getService(
-                this,
-                1,
-                pauseIntent,
-                PendingIntent.FLAG_UPDATE_CURRENT
-                        | PendingIntent.FLAG_IMMUTABLE
-        );
+        boolean playing = playerManager != null
+                && playerManager.isPlaying();
 
         String trackTitle = "MminoHub Music";
         String artistName = "Basotho Music";
@@ -119,19 +136,44 @@ public class MusicPlaybackService extends Service {
                         ? new Notification.Builder(this, CHANNEL_ID)
                         : new Notification.Builder(this);
 
-        return builder
-                .setSmallIcon(android.R.drawable.ic_media_play)
+        builder.setSmallIcon(android.R.drawable.ic_media_play)
                 .setContentTitle(trackTitle)
                 .setContentText(artistName)
                 .setContentIntent(contentIntent)
                 .setVisibility(Notification.VISIBILITY_PUBLIC)
-                .addAction(
-                        android.R.drawable.ic_media_pause,
-                        "Pause",
-                        pausePendingIntent
+                .setOnlyAlertOnce(true)
+                .setOngoing(playing);
+
+        builder.addAction(
+                android.R.drawable.ic_media_previous,
+                "Previous",
+                createActionIntent(ACTION_PREVIOUS, 2)
+        );
+
+        builder.addAction(
+                playing
+                        ? android.R.drawable.ic_media_pause
+                        : android.R.drawable.ic_media_play,
+                playing ? "Pause" : "Play",
+                createActionIntent(
+                        playing ? ACTION_PAUSE : ACTION_PLAY,
+                        3
                 )
-                .setOngoing(true)
-                .build();
+        );
+
+        builder.addAction(
+                android.R.drawable.ic_media_next,
+                "Next",
+                createActionIntent(ACTION_NEXT, 4)
+        );
+
+        builder.addAction(
+                android.R.drawable.ic_menu_close_clear_cancel,
+                "Stop",
+                createActionIntent(ACTION_STOP, 5)
+        );
+
+        return builder.build();
     }
 
     private void updateNotification() {
@@ -144,6 +186,7 @@ public class MusicPlaybackService extends Service {
     }
 
     private void stopPlaybackService() {
+
         if (playerManager != null) {
             playerManager.pause();
         }
