@@ -55,8 +55,16 @@ public class MusicPlaybackController {
     }
 
     public boolean isPlaying() {
-        return repository.getMusicPlayerManager(context).isPlaying();
-    }
+    return repository.getMusicPlayerManager(context).isPlaying();
+}
+
+public int getDuration() {
+    return repository.getMusicPlayerManager(context).getDuration();
+}
+
+public int getCurrentPosition() {
+    return repository.getMusicPlayerManager(context).getCurrentPosition();
+}
 
     private void startService(String action) {
         Intent intent = new Intent(context, MusicPlaybackService.class);
