@@ -24,21 +24,33 @@ public class MusicPlayerManager {
 
     private MediaPlayer mediaPlayer;
     private PlaybackListener listener;
+
     private boolean prepared = false;
+    private boolean loading = false;
     private boolean released = false;
+
+    private int playbackGeneration = 0;
 
     private final Runnable progressUpdater = new Runnable() {
         @Override
         public void run() {
-            if (mediaPlayer != null && prepared && mediaPlayer.isPlaying()) {
-                if (listener != null) {
-                    listener.onProgressChanged(
-                            mediaPlayer.getCurrentPosition(),
-                            mediaPlayer.getDuration()
-                    );
-                }
+            if (mediaPlayer == null || !prepared || released) {
+                return;
+            }
 
-                handler.postDelayed(this, 1000);
+            try {
+                if (mediaPlayer.isPlaying()) {
+                    if (listener != null) {
+                        listener.onProgressChanged(
+                                mediaPlayer.getCurrentPosition(),
+                                mediaPlayer.getDuration()
+                        );
+                    }
+
+                    handler.postDelayed(this, 1000);
+                }
+            } catch (IllegalStateException e) {
+                releasePlayer();
             }
         }
     };
@@ -67,89 +79,140 @@ public class MusicPlayerManager {
 
         MusicTrack track = queue.getCurrentTrack();
 
-        if (track == null || track.getAudioUrl() == null
-                || track.getAudioUrl().trim().isEmpty()) {
+        if (track == null) {
+            notifyError("No track selected.");
+            return;
+        }
+
+        String audioUrl = track.getAudioUrl();
+
+        if (audioUrl == null || audioUrl.trim().isEmpty()) {
             notifyError("Audio is not available for this track.");
             return;
         }
 
         releasePlayer();
 
-        try {
-            mediaPlayer = new MediaPlayer();
+        final int generation = playbackGeneration;
 
-            mediaPlayer.setAudioAttributes(
+        try {
+            MediaPlayer newPlayer = new MediaPlayer();
+            mediaPlayer = newPlayer;
+            loading = true;
+
+            newPlayer.setAudioAttributes(
                     new AudioAttributes.Builder()
                             .setUsage(AudioAttributes.USAGE_MEDIA)
                             .setContentType(AudioAttributes.CONTENT_TYPE_MUSIC)
                             .build()
             );
 
-            mediaPlayer.setDataSource(track.getAudioUrl());
-
-            mediaPlayer.setOnPreparedListener(player -> {
-                if (released || player != mediaPlayer) {
+            newPlayer.setOnPreparedListener(player -> {
+                if (released
+                        || generation != playbackGeneration
+                        || player != mediaPlayer) {
+                    player.release();
                     return;
                 }
 
+                loading = false;
                 prepared = true;
-                player.start();
 
-                if (listener != null) {
-                    listener.onPlaybackStarted(track);
+                try {
+                    player.start();
+
+                    if (listener != null) {
+                        listener.onPlaybackStarted(track);
+                    }
+
+                    handler.removeCallbacks(progressUpdater);
+                    handler.post(progressUpdater);
+
+                } catch (IllegalStateException e) {
+                    notifyError("Unable to start this audio.");
+                    releasePlayer();
+                }
+            });
+
+            newPlayer.setOnCompletionListener(player -> {
+                if (player != mediaPlayer || released) {
+                    return;
                 }
 
                 handler.removeCallbacks(progressUpdater);
-                handler.post(progressUpdater);
-            });
+                prepared = false;
+                loading = false;
 
-            mediaPlayer.setOnCompletionListener(player -> {
-                handler.removeCallbacks(progressUpdater);
+                MusicTrack next = queue.playNext();
 
-                if (queue.getCurrentTrack() != null) {
-                    MusicTrack next = queue.playNext();
+                if (next != null) {
+                    playCurrentTrack();
+                } else {
+                    releasePlayer();
 
-                    if (next != null) {
-                        playCurrentTrack();
-                    } else if (listener != null) {
+                    if (listener != null) {
                         listener.onPlaybackCompleted();
                     }
                 }
             });
 
-            mediaPlayer.setOnErrorListener((player, what, extra) -> {
-                notifyError("Unable to play this audio.");
-                releasePlayer();
+            newPlayer.setOnErrorListener((player, what, extra) -> {
+                if (player == mediaPlayer) {
+                    notifyError("Unable to play this audio.");
+                    releasePlayer();
+                }
+
                 return true;
             });
 
-            mediaPlayer.prepareAsync();
+            newPlayer.setDataSource(audioUrl);
+            newPlayer.prepareAsync();
 
-        } catch (IOException | IllegalArgumentException e) {
+        } catch (IOException | IllegalArgumentException
+                 | IllegalStateException e) {
+
             notifyError("Could not load this audio.");
             releasePlayer();
         }
     }
 
     public void pause() {
-        if (mediaPlayer != null && prepared && mediaPlayer.isPlaying()) {
-            mediaPlayer.pause();
-            handler.removeCallbacks(progressUpdater);
+        if (mediaPlayer == null || !prepared) {
+            return;
+        }
 
-            if (listener != null) {
-                listener.onPlaybackPaused();
+        try {
+            if (mediaPlayer.isPlaying()) {
+                mediaPlayer.pause();
+                handler.removeCallbacks(progressUpdater);
+
+                if (listener != null) {
+                    listener.onPlaybackPaused();
+                }
             }
+        } catch (IllegalStateException e) {
+            releasePlayer();
         }
     }
 
     public void resume() {
-        if (mediaPlayer != null && prepared && !mediaPlayer.isPlaying()) {
-            mediaPlayer.start();
-            handler.post(progressUpdater);
+        if (released || mediaPlayer == null || !prepared) {
+            return;
+        }
 
-            if (listener != null) {
-                listener.onPlaybackStarted(queue.getCurrentTrack());
+        try {
+            if (!mediaPlayer.isPlaying()) {
+                mediaPlayer.start();
+                handler.removeCallbacks(progressUpdater);
+                handler.post(progressUpdater);
+
+                if (listener != null) {
+                    listener.onPlaybackStarted(queue.getCurrentTrack());
+                }
             }
+        } catch (IllegalStateException e) {
+            notifyError("Unable to resume playback.");
+            releasePlayer();
         }
     }
 
@@ -162,6 +225,10 @@ public class MusicPlayerManager {
     }
 
     public void playNext() {
+        if (released) {
+            return;
+        }
+
         MusicTrack next = queue.playNext();
 
         if (next != null) {
@@ -170,6 +237,10 @@ public class MusicPlayerManager {
     }
 
     public void playPrevious() {
+        if (released) {
+            return;
+        }
+
         MusicTrack previous = queue.playPrevious();
 
         if (previous != null) {
@@ -178,28 +249,73 @@ public class MusicPlayerManager {
     }
 
     public void seekTo(int positionMs) {
-        if (mediaPlayer != null && prepared) {
+        if (mediaPlayer == null || !prepared) {
+            return;
+        }
+
+        try {
+            int duration = mediaPlayer.getDuration();
+
             int safePosition = Math.max(
                     0,
-                    Math.min(positionMs, mediaPlayer.getDuration())
+                    Math.min(positionMs, duration)
             );
 
             mediaPlayer.seekTo(safePosition);
+
+            if (listener != null) {
+                listener.onProgressChanged(
+                        safePosition,
+                        duration
+                );
+            }
+
+        } catch (IllegalStateException ignored) {
         }
     }
 
     public boolean isPlaying() {
-        return mediaPlayer != null && prepared && mediaPlayer.isPlaying();
+        if (mediaPlayer == null || !prepared || released) {
+            return false;
+        }
+
+        try {
+            return mediaPlayer.isPlaying();
+        } catch (IllegalStateException e) {
+            return false;
+        }
+    }
+
+    public boolean isPrepared() {
+        return prepared;
+    }
+
+    public boolean isLoading() {
+        return loading;
     }
 
     public int getCurrentPosition() {
-        return mediaPlayer != null && prepared
-                ? mediaPlayer.getCurrentPosition() : 0;
+        if (mediaPlayer == null || !prepared) {
+            return 0;
+        }
+
+        try {
+            return mediaPlayer.getCurrentPosition();
+        } catch (IllegalStateException e) {
+            return 0;
+        }
     }
 
     public int getDuration() {
-        return mediaPlayer != null && prepared
-                ? mediaPlayer.getDuration() : 0;
+        if (mediaPlayer == null || !prepared) {
+            return 0;
+        }
+
+        try {
+            return mediaPlayer.getDuration();
+        } catch (IllegalStateException e) {
+            return 0;
+        }
     }
 
     private void notifyError(String message) {
@@ -209,19 +325,30 @@ public class MusicPlayerManager {
     }
 
     private void releasePlayer() {
+        playbackGeneration++;
+
         handler.removeCallbacks(progressUpdater);
 
+        prepared = false;
+        loading = false;
+
         if (mediaPlayer != null) {
+            MediaPlayer oldPlayer = mediaPlayer;
+            mediaPlayer = null;
+
             try {
-                mediaPlayer.reset();
-                mediaPlayer.release();
+                oldPlayer.setOnPreparedListener(null);
+                oldPlayer.setOnCompletionListener(null);
+                oldPlayer.setOnErrorListener(null);
+                oldPlayer.reset();
             } catch (IllegalStateException ignored) {
             }
 
-            mediaPlayer = null;
+            try {
+                oldPlayer.release();
+            } catch (IllegalStateException ignored) {
+            }
         }
-
-        prepared = false;
     }
 
     public void release() {
