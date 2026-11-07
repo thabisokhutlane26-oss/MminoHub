@@ -21,9 +21,8 @@ public class MusicPlaybackController {
             return;
         }
 
-        startService(MusicPlaybackService.ACTION_PLAY);
-
         repository.getMusicPlayerManager(context).playCurrentTrack();
+        startService(MusicPlaybackService.ACTION_PLAY);
     }
 
     public void pause() {
@@ -51,6 +50,7 @@ public class MusicPlaybackController {
 
         Intent intent = new Intent(context, MusicPlaybackService.class);
         intent.setAction(MusicPlaybackService.ACTION_STOP);
+
         context.startService(intent);
     }
 
