@@ -1,6 +1,7 @@
 package com.mminohub.app;
 
 import android.app.Activity;
+import android.content.Intent;
 import android.os.Bundle;
 import android.graphics.Color;
 import android.graphics.Typeface;
@@ -13,6 +14,7 @@ import android.widget.HorizontalScrollView;
 import android.widget.LinearLayout;
 import android.widget.ScrollView;
 import android.widget.TextView;
+import android.widget.Toast;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -32,6 +34,7 @@ public class DiscoverActivity extends Activity {
     private String selectedCategory = "All";
 
     private MusicCatalogue catalogue;
+    private MusicPlaybackController playbackController;
 
     private final String[] categories = {
             "All",
@@ -45,9 +48,13 @@ public class DiscoverActivity extends Activity {
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
 
-        catalogue = MminoHubRepository
-                .getInstance()
-                .getMusicCatalogue();
+        MminoHubRepository repository =
+                MminoHubRepository.getInstance();
+
+        catalogue = repository.getMusicCatalogue();
+
+        playbackController =
+                new MusicPlaybackController(this);
 
         showDiscover();
     }
@@ -81,8 +88,6 @@ public class DiscoverActivity extends Activity {
         root.setOrientation(LinearLayout.VERTICAL);
         root.setBackgroundColor(BG);
 
-        // HEADER
-
         TextView title = text(
                 "Discover", 27, GOLD, true
         );
@@ -92,8 +97,6 @@ public class DiscoverActivity extends Activity {
         );
 
         root.addView(title);
-
-        // SEARCH
 
         searchInput = new EditText(this);
         searchInput.setSingleLine(true);
@@ -107,17 +110,13 @@ public class DiscoverActivity extends Activity {
         searchInput.setBackgroundColor(CARD);
 
         LinearLayout.LayoutParams searchParams =
-                new LinearLayout.LayoutParams(
-                        -1, -2
-                );
+                new LinearLayout.LayoutParams(-1, -2);
 
         searchParams.setMargins(
                 dp(18), 0, dp(18), dp(15)
         );
 
         root.addView(searchInput, searchParams);
-
-        // CATEGORY FILTERS
 
         HorizontalScrollView categoryScroll =
                 new HorizontalScrollView(this);
@@ -137,8 +136,6 @@ public class DiscoverActivity extends Activity {
         categoryScroll.addView(categoryRow);
         root.addView(categoryScroll);
 
-        // MAIN CONTENT
-
         ScrollView scroll = new ScrollView(this);
         scroll.setFillViewport(true);
 
@@ -153,8 +150,6 @@ public class DiscoverActivity extends Activity {
         root.addView(scroll, new LinearLayout.LayoutParams(
                 -1, 0, 1
         ));
-
-        // BOTTOM NAVIGATION
 
         addBottomNavigation(root);
 
@@ -241,9 +236,7 @@ public class DiscoverActivity extends Activity {
         });
 
         LinearLayout.LayoutParams params =
-                new LinearLayout.LayoutParams(
-                        -2, -2
-                );
+                new LinearLayout.LayoutParams(-2, -2);
 
         params.rightMargin = dp(8);
 
@@ -301,21 +294,18 @@ public class DiscoverActivity extends Activity {
 
         boolean found = false;
 
-        if (!selectedCategory.equals("Albums")) {
+        List<MusicTrack> matchingTracks =
+                filterTracks(tracks, query);
 
-            List<MusicTrack> matchingTracks =
-                    filterTracks(tracks, query);
+        if (!matchingTracks.isEmpty()) {
 
-            if (!matchingTracks.isEmpty()) {
+            addHeading("Songs");
 
-                addHeading("Songs");
-
-                for (MusicTrack track : matchingTracks) {
-                    addTrackCard(track);
-                }
-
-                found = true;
+            for (MusicTrack track : matchingTracks) {
+                addTrackCard(track, matchingTracks);
             }
+
+            found = true;
         }
 
         if (selectedCategory.equals("All")) {
@@ -454,7 +444,7 @@ public class DiscoverActivity extends Activity {
 
             shownAlbums.add(key);
 
-            addAlbumCard(track);
+            addAlbumCard(track, matching);
         }
 
         if (shownAlbums.isEmpty()) {
@@ -479,7 +469,10 @@ public class DiscoverActivity extends Activity {
         content.addView(heading);
     }
 
-    private void addTrackCard(MusicTrack track) {
+    private void addTrackCard(
+            MusicTrack track,
+            List<MusicTrack> queueTracks
+    ) {
 
         LinearLayout card = createCard();
 
@@ -529,7 +522,95 @@ public class DiscoverActivity extends Activity {
                 0, -2, 1
         ));
 
+        TextView play = text(
+                "▶", 19, GOLD, true
+        );
+
+        play.setGravity(Gravity.CENTER);
+
+        card.addView(play, new LinearLayout.LayoutParams(
+                dp(38), dp(45)
+        ));
+
+        card.setClickable(true);
+        card.setFocusable(true);
+
+        card.setOnClickListener(v ->
+                playSelectedTrack(track, queueTracks)
+        );
+
         content.addView(card, cardParams());
+    }
+
+    private void playSelectedTrack(
+            MusicTrack selectedTrack,
+            List<MusicTrack> queueTracks
+    ) {
+
+        if (selectedTrack == null
+                || queueTracks == null
+                || queueTracks.isEmpty()) {
+
+            Toast.makeText(
+                    this,
+                    "This track is not available.",
+                    Toast.LENGTH_SHORT
+            ).show();
+
+            return;
+        }
+
+        int selectedIndex = -1;
+
+        for (int i = 0; i < queueTracks.size(); i++) {
+
+            MusicTrack item = queueTracks.get(i);
+
+            if (item == selectedTrack
+                    || (item.getId() != null
+                    && item.getId().equals(selectedTrack.getId()))) {
+
+                selectedIndex = i;
+                break;
+            }
+        }
+
+        if (selectedIndex < 0) {
+
+            Toast.makeText(
+                    this,
+                    "Could not find this track in the queue.",
+                    Toast.LENGTH_SHORT
+            ).show();
+
+            return;
+        }
+
+        PlaybackQueue queue =
+                MminoHubRepository.getInstance()
+                        .getPlaybackQueue();
+
+        queue.setQueue(new ArrayList<>(queueTracks));
+
+        try {
+
+            playbackController.playTrack(selectedIndex);
+
+            Intent intent = new Intent(
+                    DiscoverActivity.this,
+                    MusicPlayerActivity.class
+            );
+
+            startActivity(intent);
+
+        } catch (Exception e) {
+
+            Toast.makeText(
+                    this,
+                    "Unable to start playback. Please try again.",
+                    Toast.LENGTH_LONG
+            ).show();
+        }
     }
 
     private void addArtistCard(Artist artist) {
@@ -584,7 +665,10 @@ public class DiscoverActivity extends Activity {
         content.addView(card, cardParams());
     }
 
-    private void addAlbumCard(MusicTrack track) {
+    private void addAlbumCard(
+            MusicTrack track,
+            List<MusicTrack> albumTracks
+    ) {
 
         LinearLayout card = createCard();
 
@@ -616,6 +700,23 @@ public class DiscoverActivity extends Activity {
                 0, -2, 1
         ));
 
+        TextView play = text(
+                "▶", 18, GOLD, true
+        );
+
+        play.setGravity(Gravity.CENTER);
+
+        card.addView(play, new LinearLayout.LayoutParams(
+                dp(38), dp(45)
+        ));
+
+        card.setClickable(true);
+        card.setFocusable(true);
+
+        card.setOnClickListener(v ->
+                playSelectedTrack(track, albumTracks)
+        );
+
         content.addView(card, cardParams());
     }
 
@@ -635,9 +736,7 @@ public class DiscoverActivity extends Activity {
     private LinearLayout.LayoutParams cardParams() {
 
         LinearLayout.LayoutParams params =
-                new LinearLayout.LayoutParams(
-                        -1, -2
-                );
+                new LinearLayout.LayoutParams(-1, -2);
 
         params.bottomMargin = dp(9);
 
@@ -732,10 +831,10 @@ public class DiscoverActivity extends Activity {
                     return;
                 }
 
-                android.widget.Toast.makeText(
+                Toast.makeText(
                         this,
                         destination + " will be connected next.",
-                        android.widget.Toast.LENGTH_SHORT
+                        Toast.LENGTH_SHORT
                 ).show();
             });
 
@@ -751,8 +850,10 @@ public class DiscoverActivity extends Activity {
     protected void onResume() {
         super.onResume();
 
-        if (catalogue != null && content != null
+        if (catalogue != null
+                && content != null
                 && searchInput != null) {
+
             renderResults();
         }
     }
