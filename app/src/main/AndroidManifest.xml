@@ -12,6 +12,23 @@
         android:supportsRtl="true"
         android:theme="@style/AppTheme">
 
+        <activity android:name=".ArtistRegistrationActivity" android:exported="false" />
+        <activity android:name=".ArtistIdentityVerificationActivity" android:exported="false" />
+        <activity android:name=".ArtistProfileActivity" android:exported="false" />
+        <activity android:name=".MusicUploadActivity" android:exported="false" />
+        <activity android:name=".ReleaseManagementActivity" android:exported="false" />
+        <activity android:name=".ArtistDashboardActivity" android:exported="false" />
+        <activity android:name=".ArtistEarningsActivity" android:exported="false" />
+
+        <activity android:name=".ListenerAuthActivity" android:exported="false" />
+        <activity android:name=".ListenerProfileActivity" android:exported="false" />
+        <activity android:name=".ListenerLibraryActivity" android:exported="false" />
+        <activity android:name=".ListenerFollowingActivity" android:exported="false" />
+        <activity android:name=".ListenerNotificationsActivity" android:exported="false" />
+        <activity android:name=".ListenerPremiumActivity" android:exported="false" />
+        <activity android:name=".ListenerPurchaseHistoryActivity" android:exported="false" />
+        <activity android:name=".ListenerSupportActivity" android:exported="false" />
+
         <activity
             android:name=".MusicPlayerActivity"
             android:exported="false" />
