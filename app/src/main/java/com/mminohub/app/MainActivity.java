@@ -1,364 +1,408 @@
-
 package com.mminohub.app;
 
 import android.app.Activity;
 import android.os.Bundle;
+import android.content.Intent;
 import android.graphics.Color;
 import android.graphics.Typeface;
-import android.graphics.drawable.GradientDrawable;
 import android.view.Gravity;
 import android.view.View;
-import android.widget.Button;
-import android.widget.CheckBox;
-import android.widget.EditText;
 import android.widget.LinearLayout;
 import android.widget.ScrollView;
-import android.widget.Spinner;
-import android.widget.ArrayAdapter;
 import android.widget.TextView;
-import android.widget.Toast;
+import android.app.AlertDialog;
 
-public class ArtistRegistrationActivity extends Activity {
+public class MainActivity extends Activity {
 
-    private final int BG = Color.rgb(8, 17, 30);
-    private final int CARD = Color.rgb(17, 31, 48);
-    private final int GOLD = Color.rgb(232, 190, 91);
+    private final int BG = Color.rgb(10, 15, 25);
+    private final int CARD = Color.rgb(21, 30, 43);
+    private final int GOLD = Color.rgb(217, 164, 65);
     private final int WHITE = Color.WHITE;
-    private final int MUTED = Color.rgb(170, 181, 195);
+    private final int MUTED = Color.rgb(170, 180, 195);
 
-    private EditText legalName;
-    private EditText artistName;
-    private EditText email;
-    private EditText phone;
-    private EditText town;
-    private EditText biography;
-    private Spinner district;
-    private Spinner genre;
-    private CheckBox idConfirmation;
-
-    private int dp(float value) {
-        return (int) (value * getResources()
-                .getDisplayMetrics().density);
-    }
+    private LinearLayout root;
+    private LinearLayout content;
+    private MiniPlayerView miniPlayer;
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
+        showHome();
+    }
+
+    private int dp(int value) {
+        return (int) (value *
+                getResources().getDisplayMetrics().density);
+    }
+
+    private TextView text(
+            String value,
+            int size,
+            int color,
+            boolean bold
+    ) {
+        TextView t = new TextView(this);
+        t.setText(value);
+        t.setTextSize(size);
+        t.setTextColor(color);
+
+        if (bold) {
+            t.setTypeface(null, Typeface.BOLD);
+        }
+
+        return t;
+    }
+
+    private void showHome() {
+
+        root = new LinearLayout(this);
+        root.setOrientation(LinearLayout.VERTICAL);
+        root.setBackgroundColor(BG);
+
+        LinearLayout header = new LinearLayout(this);
+        header.setGravity(Gravity.CENTER_VERTICAL);
+        header.setPadding(
+                dp(20), dp(18), dp(20), dp(12)
+        );
+
+        TextView logo = text(
+                "MminoHub", 27, GOLD, true
+        );
+
+        header.addView(logo, new LinearLayout.LayoutParams(
+                0, -2, 1
+        ));
+
+        TextView notification = text(
+                "♧", 27, WHITE, false
+        );
+
+        header.addView(notification);
+        root.addView(header);
+
+        TextView tagline = text(
+                "BASOTHO MUSIC  •  BASOTHO PRIDE",
+                11, MUTED, true
+        );
+
+        tagline.setPadding(
+                dp(20), 0, dp(20), dp(18)
+        );
+
+        root.addView(tagline);
 
         ScrollView scroll = new ScrollView(this);
         scroll.setFillViewport(true);
-        scroll.setBackgroundColor(BG);
 
-        LinearLayout root = new LinearLayout(this);
-        root.setOrientation(LinearLayout.VERTICAL);
-        root.setPadding(dp(20), dp(24), dp(20), dp(30));
-
-        scroll.addView(root);
-
-        TextView back = new TextView(this);
-        back.setText("←  BACK");
-        back.setTextColor(GOLD);
-        back.setTextSize(14);
-        back.setTypeface(null, Typeface.BOLD);
-        back.setPadding(0, 0, 0, dp(20));
-        back.setOnClickListener(v -> finish());
-        root.addView(back);
-
-        TextView title = new TextView(this);
-        title.setText("Artist Registration");
-        title.setTextColor(WHITE);
-        title.setTextSize(27);
-        title.setTypeface(null, Typeface.BOLD);
-        root.addView(title);
-
-        TextView subtitle = new TextView(this);
-        subtitle.setText(
-                "Join the home of Basotho music."
+        content = new LinearLayout(this);
+        content.setOrientation(LinearLayout.VERTICAL);
+        content.setPadding(
+                dp(18), dp(8), dp(18), dp(24)
         );
-        subtitle.setTextColor(MUTED);
-        subtitle.setTextSize(14);
-        subtitle.setPadding(0, dp(7), 0, dp(24));
-        root.addView(subtitle);
 
-        addSection(root, "01  PERSONAL INFORMATION");
+        scroll.addView(content);
 
-        legalName = addField(root,
-                "Full legal name",
-                "Enter your name as shown on your Lesotho ID");
+        root.addView(scroll, new LinearLayout.LayoutParams(
+                -1, 0, 1
+        ));
 
-        artistName = addField(root,
-                "Artist / stage name",
-                "Your public music name");
+        addWelcome();
 
-        email = addField(root,
-                "Email address",
-                "example@email.com");
+        addSection("Explore MminoHub");
 
-        email.setInputType(33);
-
-        phone = addField(root,
-                "Phone number",
-                "+266");
-
-        phone.setInputType(3);
-
-        addSection(root, "02  LOCATION");
-
-        town = addField(root,
-                "Town or village",
-                "Where are you based?");
-
-        TextView districtLabel = makeLabel("District");
-        root.addView(districtLabel);
-
-        district = addSpinner(root, new String[]{
-                "Select district",
-                "Berea",
-                "Butha-Buthe",
-                "Leribe",
-                "Mafeteng",
-                "Maseru",
-                "Mohale's Hoek",
-                "Mokhotlong",
-                "Qacha's Nek",
-                "Quthing",
-                "Thaba-Tseka"
-        });
-
-        addSection(root, "03  MUSIC INFORMATION");
-
-        TextView genreLabel = makeLabel("Main music genre");
-        root.addView(genreLabel);
-
-        genre = addSpinner(root, new String[]{
-                "Select music genre",
-                "Famo",
-                "Traditional Sesotho",
-                "Afro Pop",
-                "Hip Hop",
-                "Gospel",
-                "R&B",
-                "Maskandi",
-                "House",
-                "Other"
-        });
-
-        biography = addField(root,
-                "Artist biography",
-                "Tell listeners about yourself and your music.");
-
-        biography.setMinLines(4);
-        biography.setGravity(Gravity.TOP);
-        biography.setInputType(147457);
-
-        addSection(root, "04  IDENTITY REQUIREMENT");
-
-        TextView identityInfo = new TextView(this);
-        identityInfo.setText(
-                "MminoHub requires a valid Lesotho national ID " +
-                "for artist identity verification. Your ID " +
-                "document and selfie will be collected later " +
-                "through our secure verification process."
+        addCategory(
+                "♫",
+                "New Releases",
+                "Discover the latest music from Lesotho",
+                "releases"
         );
-        identityInfo.setTextColor(MUTED);
-        identityInfo.setTextSize(13);
-        identityInfo.setPadding(dp(14), dp(14), dp(14), dp(14));
-        identityInfo.setBackground(background(CARD, 14));
-        root.addView(identityInfo);
 
-        idConfirmation = new CheckBox(this);
-        idConfirmation.setText(
-                "I have a valid Lesotho national ID."
+        addCategory(
+                "▶",
+                "Popular Music",
+                "Find music listeners are enjoying",
+                "popular"
         );
-        idConfirmation.setTextColor(WHITE);
-        idConfirmation.setButtonTintList(
-                android.content.res.ColorStateList.valueOf(GOLD)
+
+        addCategory(
+                "♬",
+                "Artists",
+                "Meet Basotho musicians and groups",
+                "artists"
         );
-        idConfirmation.setPadding(0, dp(12), 0, dp(12));
-        root.addView(idConfirmation);
 
-        Button submit = new Button(this);
-        submit.setText("CONTINUE REGISTRATION");
-        submit.setTextColor(BG);
-        submit.setTextSize(14);
-        submit.setTypeface(null, Typeface.BOLD);
-        submit.setBackground(background(GOLD, 14));
-
-        LinearLayout.LayoutParams buttonParams =
-                new LinearLayout.LayoutParams(
-                        -1, dp(54)
-                );
-        buttonParams.topMargin = dp(20);
-        root.addView(submit, buttonParams);
-
-        submit.setOnClickListener(v -> validateForm());
-
-        TextView footer = new TextView(this);
-        footer.setText(
-                "BASOTHO MUSIC. BASOTHO TALENT. BASOTHO PRIDE."
+        addCategory(
+                "▤",
+                "Albums & EPs",
+                "Explore complete music collections",
+                "albums"
         );
-        footer.setTextColor(MUTED);
-        footer.setTextSize(10);
-        footer.setGravity(Gravity.CENTER);
-        footer.setPadding(0, dp(25), 0, dp(10));
-        root.addView(footer);
 
-        setContentView(scroll);
+        addSection("Your MminoHub");
+
+        addCategory(
+                "♡",
+                "Your Library",
+                "Your saved and purchased music",
+                "library"
+        );
+
+        addCategory(
+                "◎",
+                "Following",
+                "Artists you choose to follow",
+                "following"
+        );
+
+        MusicTrack currentTrack = MminoHubRepository
+                .getInstance()
+                .getPlaybackQueue()
+                .getCurrentTrack();
+
+        miniPlayer = null;
+
+        if (currentTrack != null) {
+            miniPlayer = new MiniPlayerView(this);
+
+            LinearLayout.LayoutParams playerParams =
+                    new LinearLayout.LayoutParams(
+                            -1, -2
+                    );
+
+            playerParams.setMargins(
+                    dp(12), dp(8), dp(12), dp(8)
+            );
+
+            root.addView(miniPlayer, playerParams);
+        }
+
+        addBottomNavigation();
+
+        setContentView(root);
     }
 
-    private void addSection(LinearLayout parent, String text) {
-        TextView section = new TextView(this);
-        section.setText(text);
-        section.setTextColor(GOLD);
-        section.setTextSize(12);
-        section.setTypeface(null, Typeface.BOLD);
+    private void addWelcome() {
+
+        LinearLayout card = new LinearLayout(this);
+        card.setOrientation(LinearLayout.VERTICAL);
+        card.setPadding(
+                dp(20), dp(22), dp(20), dp(22)
+        );
+        card.setBackgroundColor(CARD);
+
+        TextView title = text(
+                "Discover the sound of Lesotho.",
+                25, WHITE, true
+        );
+
+        TextView subtitle = text(
+                "Explore Basotho artists, songs and albums in one place.",
+                14, MUTED, false
+        );
+
+        subtitle.setPadding(0, dp(10), 0, 0);
+
+        card.addView(title);
+        card.addView(subtitle);
+
+        content.addView(card, new LinearLayout.LayoutParams(
+                -1, -2
+        ));
+    }
+
+    private void addSection(String title) {
+
+        TextView heading = text(
+                title, 19, WHITE, true
+        );
+
+        heading.setPadding(
+                0, dp(24), 0, dp(12)
+        );
+
+        content.addView(heading);
+    }
+
+    private void addCategory(
+            String symbol,
+            String title,
+            String description,
+            String destination
+    ) {
+
+        LinearLayout card = new LinearLayout(this);
+        card.setOrientation(LinearLayout.HORIZONTAL);
+        card.setGravity(Gravity.CENTER_VERTICAL);
+        card.setPadding(
+                dp(15), dp(16), dp(15), dp(16)
+        );
+
+        card.setBackgroundColor(CARD);
+        card.setClickable(true);
+        card.setFocusable(true);
+
+        TextView icon = text(
+                symbol, 26, GOLD, true
+        );
+
+        icon.setGravity(Gravity.CENTER);
+
+        card.addView(icon, new LinearLayout.LayoutParams(
+                dp(45), dp(45)
+        ));
+
+        LinearLayout details = new LinearLayout(this);
+        details.setOrientation(LinearLayout.VERTICAL);
+        details.setPadding(dp(12), 0, 0, 0);
+
+        details.addView(text(
+                title, 16, WHITE, true
+        ));
+
+        TextView desc = text(
+                description, 12, MUTED, false
+        );
+
+        desc.setPadding(0, dp(5), 0, 0);
+
+        details.addView(desc);
+
+        card.addView(details, new LinearLayout.LayoutParams(
+                0, -2, 1
+        ));
+
+        card.setOnClickListener(v ->
+                openSection(destination)
+        );
 
         LinearLayout.LayoutParams params =
                 new LinearLayout.LayoutParams(-1, -2);
-        params.topMargin = dp(22);
-        params.bottomMargin = dp(13);
 
-        parent.addView(section, params);
+        params.bottomMargin = dp(10);
+
+        content.addView(card, params);
     }
 
-    private TextView makeLabel(String text) {
-        TextView label = new TextView(this);
-        label.setText(text);
-        label.setTextColor(WHITE);
-        label.setTextSize(13);
-        label.setTypeface(null, Typeface.BOLD);
-        label.setPadding(0, dp(10), 0, dp(7));
-        return label;
+    private void addBottomNavigation() {
+
+        LinearLayout nav = new LinearLayout(this);
+        nav.setBackgroundColor(CARD);
+        nav.setGravity(Gravity.CENTER);
+        nav.setPadding(0, dp(10), 0, dp(10));
+
+        String[] labels = {
+                "⌂\nHome",
+                "⌕\nDiscover",
+                "♫\nLibrary",
+                "♡\nFollowing",
+                "◎\nProfile"
+        };
+
+        for (int i = 0; i < labels.length; i++) {
+
+            final String destination =
+                    labels[i].substring(
+                            labels[i].indexOf('\n') + 1
+                    );
+
+            TextView item = text(
+                    labels[i],
+                    11,
+                    i == 0 ? GOLD : MUTED,
+                    i == 0
+            );
+
+            item.setGravity(Gravity.CENTER);
+            item.setClickable(true);
+            item.setFocusable(true);
+
+            item.setOnClickListener(v ->
+                    openSection(destination)
+            );
+
+            nav.addView(item, new LinearLayout.LayoutParams(
+                    0, dp(48), 1
+            ));
+        }
+
+        root.addView(nav);
     }
 
-    private EditText addField(
-            LinearLayout parent,
-            String labelText,
-            String hint
-    ) {
-        parent.addView(makeLabel(labelText));
+    private void openSection(String destination) {
 
-        EditText field = new EditText(this);
-        field.setSingleLine(false);
-        field.setTextColor(WHITE);
-        field.setHintTextColor(MUTED);
-        field.setHint(hint);
-        field.setTextSize(14);
-        field.setPadding(dp(14), dp(12), dp(14), dp(12));
-        field.setBackground(background(CARD, 12));
+        if (destination.equals("Home")) {
+            showHome();
+            return;
+        }
 
-        LinearLayout.LayoutParams params =
-                new LinearLayout.LayoutParams(-1, dp(52));
-        params.bottomMargin = dp(8);
+        if (destination.equals("Discover")) {
+            Intent intent = new Intent(
+                    MainActivity.this,
+                    DiscoverActivity.class
+            );
 
-        parent.addView(field, params);
-        return field;
+            startActivity(intent);
+            return;
+        }
+
+        String message;
+
+        switch (destination) {
+
+            case "releases":
+            case "popular":
+            case "albums":
+
+                message =
+                        "No music available yet. Check back soon as Basotho artists join MminoHub.";
+                break;
+
+            case "artists":
+
+                message =
+                        "No artists available yet. Basotho artists will appear here when they join MminoHub.";
+                break;
+
+            case "library":
+            case "Library":
+
+                message =
+                        "Your saved and purchased music will appear here.";
+                break;
+
+            case "following":
+            case "Following":
+
+                message =
+                        "Artists you follow will appear here.";
+                break;
+
+            case "Profile":
+
+                message =
+                        "Your MminoHub profile and account settings will appear here.";
+                break;
+
+            default:
+
+                message =
+                        "This section is coming soon.";
+                break;
+        }
+
+        new AlertDialog.Builder(this)
+                .setTitle(destination)
+                .setMessage(message)
+                .setPositiveButton("OK", null)
+                .show();
     }
 
-    private Spinner addSpinner(
-            LinearLayout parent,
-            String[] options
-    ) {
-        Spinner spinner = new Spinner(this);
+    @Override
+    protected void onResume() {
+        super.onResume();
 
-        ArrayAdapter<String> adapter =
-                new ArrayAdapter<>(
-                        this,
-                        android.R.layout.simple_spinner_item,
-                        options
-                );
-
-        adapter.setDropDownViewResource(
-                android.R.layout.simple_spinner_dropdown_item
-        );
-
-        spinner.setAdapter(adapter);
-        spinner.setPadding(dp(10), 0, dp(10), 0);
-        spinner.setBackground(background(CARD, 12));
-
-        LinearLayout.LayoutParams params =
-                new LinearLayout.LayoutParams(-1, dp(52));
-        params.bottomMargin = dp(8);
-
-        parent.addView(spinner, params);
-        return spinner;
-    }
-
-    private GradientDrawable background(
-            int color,
-            int radius
-    ) {
-        GradientDrawable drawable = new GradientDrawable();
-        drawable.setColor(color);
-        drawable.setCornerRadius(dp(radius));
-        drawable.setStroke(dp(1), Color.rgb(49, 62, 77));
-        return drawable;
-    }
-
-    private void validateForm() {
-
-        if (legalName.getText().toString().trim().isEmpty()) {
-            legalName.setError("Enter your legal name");
-            return;
+        if (miniPlayer != null) {
+            miniPlayer.refresh();
         }
-
-        if (artistName.getText().toString().trim().isEmpty()) {
-            artistName.setError("Enter your artist name");
-            return;
-        }
-
-        if (email.getText().toString().trim().isEmpty()) {
-            email.setError("Enter your email");
-            return;
-        }
-
-        if (phone.getText().toString().trim().isEmpty()) {
-            phone.setError("Enter your phone number");
-            return;
-        }
-
-        if (town.getText().toString().trim().isEmpty()) {
-            town.setError("Enter your town or village");
-            return;
-        }
-
-        if (district.getSelectedItemPosition() == 0) {
-            Toast.makeText(
-                    this,
-                    "Please select your district",
-                    Toast.LENGTH_SHORT
-            ).show();
-            return;
-        }
-
-        if (genre.getSelectedItemPosition() == 0) {
-            Toast.makeText(
-                    this,
-                    "Please select your music genre",
-                    Toast.LENGTH_SHORT
-            ).show();
-            return;
-        }
-
-        if (biography.getText().toString().trim().isEmpty()) {
-            biography.setError("Write a short biography");
-            return;
-        }
-
-        if (!idConfirmation.isChecked()) {
-            Toast.makeText(
-                    this,
-                    "A valid Lesotho national ID is required",
-                    Toast.LENGTH_LONG
-            ).show();
-            return;
-        }
-
-        Toast.makeText(
-                this,
-                "Form completed. Secure registration submission " +
-                "will be enabled when the MminoHub backend is ready.",
-                Toast.LENGTH_LONG
-        ).show();
     }
 }
