@@ -76,6 +76,10 @@ public class MainActivity extends Activity {
         TextView notification = text(
                 "♧", 27, WHITE, false
         );
+        notification.setClickable(true);
+        notification.setOnClickListener(v ->
+                openSection("notifications")
+        );
 
         header.addView(notification);
         root.addView(header);
@@ -152,6 +156,101 @@ public class MainActivity extends Activity {
                 "Following",
                 "Artists you choose to follow",
                 "following"
+        );
+
+        addSection("Listener Account");
+
+        addCategory(
+                "●",
+                "Sign In / Register",
+                "Create or access your listener account",
+                "auth"
+        );
+
+        addCategory(
+                "☺",
+                "My Profile",
+                "Manage your listener profile",
+                "profile"
+        );
+
+        addCategory(
+                "♧",
+                "Notifications",
+                "Updates from MminoHub",
+                "notifications"
+        );
+
+        addCategory(
+                "★",
+                "MminoHub Premium",
+                "Explore Premium listening",
+                "premium"
+        );
+
+        addCategory(
+                "▣",
+                "Purchase History",
+                "View your music purchases",
+                "purchases"
+        );
+
+        addCategory(
+                "?",
+                "Help & Support",
+                "Get help using MminoHub",
+                "support"
+        );
+
+        addSection("For Basotho Artists");
+
+        addCategory(
+                "♫",
+                "Artist Registration",
+                "Join MminoHub as an artist",
+                "artist_register"
+        );
+
+        addCategory(
+                "✓",
+                "Identity Verification",
+                "Review artist verification requirements",
+                "artist_verify"
+        );
+
+        addCategory(
+                "◉",
+                "Artist Profile",
+                "View an artist profile",
+                "artist_profile"
+        );
+
+        addCategory(
+                "+",
+                "Upload Music",
+                "Prepare a song or album release",
+                "upload"
+        );
+
+        addCategory(
+                "▤",
+                "Release Management",
+                "Manage your music releases",
+                "release_management"
+        );
+
+        addCategory(
+                "▦",
+                "Artist Dashboard",
+                "View your artist dashboard",
+                "artist_dashboard"
+        );
+
+        addCategory(
+                "M",
+                "Artist Earnings",
+                "View earnings information",
+                "artist_earnings"
         );
 
         MusicTrack currentTrack = MminoHubRepository
@@ -328,70 +427,118 @@ public class MainActivity extends Activity {
         root.addView(nav);
     }
 
+    private void openActivity(Class<?> activityClass) {
+        Intent intent = new Intent(
+                MainActivity.this,
+                activityClass
+        );
+        startActivity(intent);
+    }
+
     private void openSection(String destination) {
 
-        if (destination.equals("Home")) {
-            showHome();
-            return;
-        }
-
-        if (destination.equals("Discover")) {
-            Intent intent = new Intent(
-                    MainActivity.this,
-                    DiscoverActivity.class
-            );
-
-            startActivity(intent);
-            return;
-        }
-
-        String message;
-
         switch (destination) {
+
+            case "Home":
+                showHome();
+                return;
+
+            case "Discover":
+                openActivity(DiscoverActivity.class);
+                return;
+
+            case "library":
+            case "Library":
+                openActivity(ListenerLibraryActivity.class);
+                return;
+
+            case "following":
+            case "Following":
+                openActivity(ListenerFollowingActivity.class);
+                return;
+
+            case "Profile":
+            case "profile":
+                openActivity(ListenerProfileActivity.class);
+                return;
+
+            case "notifications":
+                openActivity(ListenerNotificationsActivity.class);
+                return;
+
+            case "auth":
+                openActivity(ListenerAuthActivity.class);
+                return;
+
+            case "premium":
+                openActivity(ListenerPremiumActivity.class);
+                return;
+
+            case "purchases":
+                openActivity(ListenerPurchaseHistoryActivity.class);
+                return;
+
+            case "support":
+                openActivity(ListenerSupportActivity.class);
+                return;
+
+            case "artist_register":
+                openActivity(ArtistRegistrationActivity.class);
+                return;
+
+            case "artist_verify":
+                openActivity(ArtistIdentityVerificationActivity.class);
+                return;
+
+            case "artist_profile":
+                openActivity(ArtistProfileActivity.class);
+                return;
+
+            case "upload":
+                openActivity(MusicUploadActivity.class);
+                return;
+
+            case "release_management":
+                openActivity(ReleaseManagementActivity.class);
+                return;
+
+            case "artist_dashboard":
+                openActivity(ArtistDashboardActivity.class);
+                return;
+
+            case "artist_earnings":
+                openActivity(ArtistEarningsActivity.class);
+                return;
 
             case "releases":
             case "popular":
             case "albums":
 
-                message =
-                        "No music available yet. Check back soon as Basotho artists join MminoHub.";
-                break;
+                showMessage(
+                        destination,
+                        "No music available yet. Check back soon as Basotho artists join MminoHub."
+                );
+                return;
 
             case "artists":
 
-                message =
-                        "No artists available yet. Basotho artists will appear here when they join MminoHub.";
-                break;
-
-            case "library":
-            case "Library":
-
-                message =
-                        "Your saved and purchased music will appear here.";
-                break;
-
-            case "following":
-            case "Following":
-
-                message =
-                        "Artists you follow will appear here.";
-                break;
-
-            case "Profile":
-
-                message =
-                        "Your MminoHub profile and account settings will appear here.";
-                break;
+                showMessage(
+                        "Artists",
+                        "No artists available yet. Basotho artists will appear here when they join MminoHub."
+                );
+                return;
 
             default:
-
-                message =
-                        "This section is coming soon.";
-                break;
+                showMessage(
+                        destination,
+                        "This section is coming soon."
+                );
         }
+    }
 
+    private void showMessage(String title, String message) {
         new AlertDialog.Builder(this)
-                .setTitle(destination)
+                .setTitle(title)
                 .setMessage(message)
                 .setPositiveButton("OK", null)
                 .show();
