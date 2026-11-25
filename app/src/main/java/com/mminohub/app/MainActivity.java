@@ -11,6 +11,11 @@ import android.widget.LinearLayout;
 import android.widget.ScrollView;
 import android.widget.TextView;
 import android.app.AlertDialog;
+import android.widget.Toast;
+
+import com.google.firebase.auth.FirebaseAuth;
+import com.google.firebase.auth.FirebaseUser;
+import com.google.firebase.firestore.FirebaseFirestore;
 
 public class MainActivity extends Activity {
 
@@ -24,9 +29,21 @@ public class MainActivity extends Activity {
     private LinearLayout content;
     private MiniPlayerView miniPlayer;
 
+    private FirebaseAuth auth;
+    private FirebaseFirestore firestore;
+
+    private TextView welcomeTitle;
+    private TextView welcomeSubtitle;
+
+    private boolean firstResume = true;
+
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
+
+        auth = FirebaseAuth.getInstance();
+        firestore = FirebaseFirestore.getInstance();
+
         showHome();
     }
 
@@ -73,9 +90,12 @@ public class MainActivity extends Activity {
                 0, -2, 1
         ));
 
+        FirebaseUser currentUser = auth.getCurrentUser();
+
         TextView notification = text(
                 "♧", 27, WHITE, false
         );
+
         notification.setClickable(true);
         notification.setOnClickListener(v ->
                 openSection("notifications")
@@ -110,7 +130,7 @@ public class MainActivity extends Activity {
                 -1, 0, 1
         ));
 
-        addWelcome();
+        addWelcome(currentUser);
 
         addSection("Explore MminoHub");
 
@@ -160,19 +180,38 @@ public class MainActivity extends Activity {
 
         addSection("Listener Account");
 
-        addCategory(
-                "●",
-                "Sign In / Register",
-                "Create or access your listener account",
-                "auth"
-        );
+        if (currentUser == null) {
 
-        addCategory(
-                "☺",
-                "My Profile",
-                "Manage your listener profile",
-                "profile"
-        );
+            addCategory(
+                    "●",
+                    "Sign In / Register",
+                    "Create or access your listener account",
+                    "auth"
+            );
+
+        } else {
+
+            addCategory(
+                    "✓",
+                    "Account Active",
+                    "You are signed in to MminoHub",
+                    "profile"
+            );
+
+            addCategory(
+                    "☺",
+                    "My Profile",
+                    "Manage your listener profile",
+                    "profile"
+            );
+
+            addCategory(
+                    "↪",
+                    "Log Out",
+                    "Sign out of your MminoHub account",
+                    "logout"
+            );
+        }
 
         addCategory(
                 "♧",
@@ -280,33 +319,91 @@ public class MainActivity extends Activity {
         setContentView(root);
     }
 
-    private void addWelcome() {
+    private void addWelcome(FirebaseUser user) {
 
         LinearLayout card = new LinearLayout(this);
         card.setOrientation(LinearLayout.VERTICAL);
         card.setPadding(
                 dp(20), dp(22), dp(20), dp(22)
         );
+
         card.setBackgroundColor(CARD);
 
-        TextView title = text(
-                "Discover the sound of Lesotho.",
-                25, WHITE, true
-        );
+        if (user == null) {
 
-        TextView subtitle = text(
-                "Explore Basotho artists, songs and albums in one place.",
-                14, MUTED, false
-        );
+            welcomeTitle = text(
+                    "Discover the sound of Lesotho.",
+                    25, WHITE, true
+            );
 
-        subtitle.setPadding(0, dp(10), 0, 0);
+            welcomeSubtitle = text(
+                    "Explore Basotho artists, songs and albums in one place.",
+                    14, MUTED, false
+            );
 
-        card.addView(title);
-        card.addView(subtitle);
+        } else {
+
+            welcomeTitle = text(
+                    "Welcome back!",
+                    25, GOLD, true
+            );
+
+            String email = user.getEmail();
+
+            welcomeSubtitle = text(
+                    email == null
+                            ? "You are signed in to MminoHub."
+                            : "Signed in as " + email,
+                    14, MUTED, false
+            );
+
+            loadListenerName(user);
+        }
+
+        welcomeSubtitle.setPadding(0, dp(10), 0, 0);
+
+        card.addView(welcomeTitle);
+        card.addView(welcomeSubtitle);
 
         content.addView(card, new LinearLayout.LayoutParams(
                 -1, -2
         ));
+    }
+
+    private void loadListenerName(FirebaseUser user) {
+
+        firestore.collection("users")
+                .document(user.getUid())
+                .get()
+                .addOnSuccessListener(document -> {
+
+                    if (isFinishing() || isDestroyed()) return;
+
+                    if (auth.getCurrentUser() == null ||
+                            !auth.getCurrentUser().getUid()
+                                    .equals(user.getUid())) {
+                        return;
+                    }
+
+                    if (document.exists()) {
+
+                        String name = document.getString("name");
+
+                        if (name != null && !name.trim().isEmpty()) {
+
+                            welcomeTitle.setText(
+                                    "Welcome back, " + name + "!"
+                            );
+                        }
+                    }
+                })
+                .addOnFailureListener(error ->
+                        android.util.Log.e(
+                                "MminoHub",
+                                "Could not load listener name",
+                                error
+                        )
+                );
     }
 
     private void addSection(String title) {
@@ -427,11 +524,36 @@ public class MainActivity extends Activity {
         root.addView(nav);
     }
 
+    private void logout() {
+
+        new AlertDialog.Builder(this)
+                .setTitle("Log out")
+                .setMessage(
+                        "Are you sure you want to log out of MminoHub?"
+                )
+                .setNegativeButton("CANCEL", null)
+                .setPositiveButton("LOG OUT", (dialog, which) -> {
+
+                    auth.signOut();
+
+                    Toast.makeText(
+                            this,
+                            "You have been logged out.",
+                            Toast.LENGTH_SHORT
+                    ).show();
+
+                    showHome();
+                })
+                .show();
+    }
+
     private void openActivity(Class<?> activityClass) {
+
         Intent intent = new Intent(
                 MainActivity.this,
                 activityClass
         );
+
         startActivity(intent);
     }
 
@@ -468,6 +590,10 @@ public class MainActivity extends Activity {
 
             case "auth":
                 openActivity(ListenerAuthActivity.class);
+                return;
+
+            case "logout":
+                logout();
                 return;
 
             case "premium":
@@ -537,6 +663,7 @@ public class MainActivity extends Activity {
     }
 
     private void showMessage(String title, String message) {
+
         new AlertDialog.Builder(this)
                 .setTitle(title)
                 .setMessage(message)
@@ -547,6 +674,12 @@ public class MainActivity extends Activity {
     @Override
     protected void onResume() {
         super.onResume();
+
+        if (firstResume) {
+            firstResume = false;
+        } else {
+            showHome();
+        }
 
         if (miniPlayer != null) {
             miniPlayer.refresh();
