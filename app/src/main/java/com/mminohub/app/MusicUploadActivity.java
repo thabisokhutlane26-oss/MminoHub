@@ -17,6 +17,18 @@ import android.widget.Spinner;
 import android.widget.TextView;
 import android.widget.Toast;
 
+import com.google.firebase.auth.FirebaseAuth;
+import com.google.firebase.auth.FirebaseUser;
+import com.google.firebase.firestore.FieldValue;
+import com.google.firebase.firestore.FirebaseFirestore;
+import com.google.firebase.storage.FirebaseStorage;
+import com.google.firebase.storage.StorageMetadata;
+import com.google.firebase.storage.StorageReference;
+
+import java.util.HashMap;
+import java.util.Map;
+import java.util.UUID;
+
 public class MusicUploadActivity extends Activity {
 
     private final int BG = Color.rgb(8, 17, 30);
@@ -37,9 +49,18 @@ public class MusicUploadActivity extends Activity {
 
     private TextView audioStatus;
     private TextView coverStatus;
+    private TextView uploadStatus;
+
+    private Button submitButton;
 
     private Uri selectedAudio;
     private Uri selectedCover;
+
+    private FirebaseAuth auth;
+    private FirebaseFirestore firestore;
+    private FirebaseStorage storage;
+
+    private boolean uploading = false;
 
     private int dp(float value) {
         return (int) (value * getResources()
@@ -49,6 +70,10 @@ public class MusicUploadActivity extends Activity {
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
+
+        auth = FirebaseAuth.getInstance();
+        firestore = FirebaseFirestore.getInstance();
+        storage = FirebaseStorage.getInstance();
 
         ScrollView scroll = new ScrollView(this);
         scroll.setFillViewport(true);
@@ -153,10 +178,10 @@ public class MusicUploadActivity extends Activity {
 
         TextView notice = new TextView(this);
         notice.setText(
-                "Your release will need an administrative review " +
-                "before it can appear in the public MminoHub catalogue. " +
-                "Only upload music and artwork that you own or are " +
-                "authorised to distribute."
+                "Your release will be submitted for administrative " +
+                "review before appearing in the public MminoHub " +
+                "catalogue. Only upload music and artwork that you " +
+                "own or are authorised to distribute."
         );
         notice.setTextColor(MUTED);
         notice.setTextSize(12);
@@ -164,19 +189,26 @@ public class MusicUploadActivity extends Activity {
         notice.setBackground(background(CARD, 14));
         root.addView(notice);
 
-        Button submit = new Button(this);
-        submit.setText("SUBMIT RELEASE");
-        submit.setTextColor(BG);
-        submit.setTextSize(14);
-        submit.setTypeface(null, Typeface.BOLD);
-        submit.setBackground(background(GOLD, 14));
+        uploadStatus = new TextView(this);
+        uploadStatus.setText("Ready when your files and details are complete.");
+        uploadStatus.setTextColor(GOLD);
+        uploadStatus.setTextSize(12);
+        uploadStatus.setPadding(0, dp(15), 0, dp(5));
+        root.addView(uploadStatus);
+
+        submitButton = new Button(this);
+        submitButton.setText("SUBMIT RELEASE");
+        submitButton.setTextColor(BG);
+        submitButton.setTextSize(14);
+        submitButton.setTypeface(null, Typeface.BOLD);
+        submitButton.setBackground(background(GOLD, 14));
 
         LinearLayout.LayoutParams buttonParams =
                 new LinearLayout.LayoutParams(-1, dp(54));
-        buttonParams.topMargin = dp(20);
-        root.addView(submit, buttonParams);
+        buttonParams.topMargin = dp(12);
+        root.addView(submitButton, buttonParams);
 
-        submit.setOnClickListener(v -> validateRelease());
+        submitButton.setOnClickListener(v -> validateRelease());
 
         TextView footer = new TextView(this);
         footer.setText("MMINOHUB • MUSIC DISTRIBUTION");
@@ -187,6 +219,35 @@ public class MusicUploadActivity extends Activity {
         root.addView(footer);
 
         setContentView(scroll);
+
+        loadArtistName();
+    }
+
+    private void loadArtistName() {
+        FirebaseUser user = auth.getCurrentUser();
+
+        if (user == null) {
+            return;
+        }
+
+        firestore.collection("artistApplications")
+                .document(user.getUid())
+                .get()
+                .addOnSuccessListener(document -> {
+                    if (isFinishing()) {
+                        return;
+                    }
+
+                    if (document.exists()) {
+                        String savedName =
+                                document.getString("artistName");
+
+                        if (savedName != null &&
+                                !savedName.trim().isEmpty()) {
+                            artistName.setText(savedName);
+                        }
+                    }
+                });
     }
 
     private TextView addFileCard(
@@ -240,8 +301,11 @@ public class MusicUploadActivity extends Activity {
     }
 
     private void openFilePicker(int requestCode) {
-        Intent intent = new Intent(Intent.ACTION_OPEN_DOCUMENT);
+        if (uploading) {
+            return;
+        }
 
+        Intent intent = new Intent(Intent.ACTION_OPEN_DOCUMENT);
         intent.addCategory(Intent.CATEGORY_OPENABLE);
 
         if (requestCode == PICK_AUDIO) {
@@ -251,15 +315,12 @@ public class MusicUploadActivity extends Activity {
         }
 
         intent.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION);
+        intent.addFlags(Intent.FLAG_GRANT_PERSISTABLE_URI_PERMISSION);
 
         try {
             startActivityForResult(intent, requestCode);
         } catch (Exception e) {
-            Toast.makeText(
-                    this,
-                    "File picker could not be opened.",
-                    Toast.LENGTH_SHORT
-            ).show();
+            showMessage("File picker could not be opened.");
         }
     }
 
@@ -281,16 +342,38 @@ public class MusicUploadActivity extends Activity {
             return;
         }
 
+        try {
+            int flags = data.getFlags()
+                    & Intent.FLAG_GRANT_READ_URI_PERMISSION;
+
+            getContentResolver().takePersistableUriPermission(
+                    uri,
+                    flags
+            );
+        } catch (Exception ignored) {
+            // Some document providers do not support persistent access.
+        }
+
         if (requestCode == PICK_AUDIO) {
             selectedAudio = uri;
-            audioStatus.setText("Audio file selected");
+            audioStatus.setText("Audio file selected ✓");
         } else if (requestCode == PICK_COVER) {
             selectedCover = uri;
-            coverStatus.setText("Cover artwork selected");
+            coverStatus.setText("Cover artwork selected ✓");
         }
     }
 
     private void validateRelease() {
+        if (uploading) {
+            return;
+        }
+
+        FirebaseUser user = auth.getCurrentUser();
+
+        if (user == null) {
+            showMessage("Please sign in first.");
+            return;
+        }
 
         if (selectedAudio == null) {
             showMessage("Please select an audio file.");
@@ -302,12 +385,18 @@ public class MusicUploadActivity extends Activity {
             return;
         }
 
-        if (songTitle.getText().toString().trim().isEmpty()) {
+        String title = songTitle.getText().toString().trim();
+        String artist = artistName.getText().toString().trim();
+        String album = albumName.getText().toString().trim();
+        String releaseDescription =
+                description.getText().toString().trim();
+
+        if (title.isEmpty()) {
             songTitle.setError("Enter the song title");
             return;
         }
 
-        if (artistName.getText().toString().trim().isEmpty()) {
+        if (artist.isEmpty()) {
             artistName.setError("Enter the artist name");
             return;
         }
@@ -317,11 +406,206 @@ public class MusicUploadActivity extends Activity {
             return;
         }
 
-        showMessage(
-                "Release details completed. Actual upload and " +
-                "administrative submission will be enabled " +
-                "when the secure backend is ready."
-        );
+        String selectedGenre =
+                genre.getSelectedItem().toString();
+
+        setUploading(true, "Checking artist account...");
+
+        firestore.collection("artistApplications")
+                .document(user.getUid())
+                .get()
+                .addOnSuccessListener(document -> {
+                    if (isFinishing()) {
+                        return;
+                    }
+
+                    if (!document.exists()) {
+                        setUploading(false, "Artist application required.");
+                        showMessage(
+                                "Submit your artist application first."
+                        );
+                        return;
+                    }
+
+                    String applicationStatus =
+                            document.getString("status");
+
+                    if ("rejected".equalsIgnoreCase(applicationStatus)) {
+                        setUploading(false, "Artist application not approved.");
+                        showMessage(
+                                "Your artist application was not approved."
+                        );
+                        return;
+                    }
+
+                    uploadRelease(
+                            user,
+                            title,
+                            artist,
+                            album,
+                            selectedGenre,
+                            releaseDescription
+                    );
+                })
+                .addOnFailureListener(error -> {
+                    setUploading(false, "Could not check artist account.");
+                    showMessage(
+                            "Artist account check failed. Check your connection and Firestore rules."
+                    );
+                });
+    }
+
+    private void uploadRelease(
+            FirebaseUser user,
+            String title,
+            String artist,
+            String album,
+            String selectedGenre,
+            String releaseDescription
+    ) {
+        String releaseId = UUID.randomUUID().toString();
+
+        StorageReference releaseFolder = storage
+                .getReference()
+                .child("artistReleases")
+                .child(user.getUid())
+                .child(releaseId);
+
+        StorageReference audioReference =
+                releaseFolder.child("audio");
+
+        StorageReference coverReference =
+                releaseFolder.child("cover");
+
+        setUploading(true, "Uploading audio file...");
+
+        StorageMetadata audioMetadata = new StorageMetadata.Builder()
+                .setContentType(getContentResolver()
+                        .getType(selectedAudio) != null
+                        ? getContentResolver().getType(selectedAudio)
+                        : "audio/mpeg")
+                .build();
+
+        audioReference.putFile(selectedAudio, audioMetadata)
+                .addOnSuccessListener(audioTask -> {
+                    if (isFinishing()) {
+                        return;
+                    }
+
+                    setUploading(true, "Uploading cover artwork...");
+
+                    StorageMetadata coverMetadata =
+                            new StorageMetadata.Builder()
+                                    .setContentType(
+                                            getContentResolver()
+                                                    .getType(selectedCover) != null
+                                                    ? getContentResolver()
+                                                            .getType(selectedCover)
+                                                    : "image/jpeg"
+                                    )
+                                    .build();
+
+                    coverReference.putFile(
+                            selectedCover,
+                            coverMetadata
+                    ).addOnSuccessListener(coverTask -> {
+                        if (isFinishing()) {
+                            return;
+                        }
+
+                        saveReleaseRecord(
+                                user,
+                                releaseId,
+                                title,
+                                artist,
+                                album,
+                                selectedGenre,
+                                releaseDescription,
+                                audioReference,
+                                coverReference
+                        );
+                    }).addOnFailureListener(error -> {
+                        setUploading(false, "Cover upload failed.");
+                        showMessage(
+                                "Cover upload failed. Please try again."
+                        );
+                    });
+                })
+                .addOnFailureListener(error -> {
+                    setUploading(false, "Audio upload failed.");
+                    showMessage(
+                            "Audio upload failed. Check Firebase Storage settings and rules."
+                    );
+                });
+    }
+
+    private void saveReleaseRecord(
+            FirebaseUser user,
+            String releaseId,
+            String title,
+            String artist,
+            String album,
+            String selectedGenre,
+            String releaseDescription,
+            StorageReference audioReference,
+            StorageReference coverReference
+    ) {
+        setUploading(true, "Saving release details...");
+
+        Map<String, Object> release = new HashMap<>();
+
+        release.put("releaseId", releaseId);
+        release.put("artistId", user.getUid());
+        release.put("artistName", artist);
+        release.put("title", title);
+        release.put("albumName", album);
+        release.put("genre", selectedGenre);
+        release.put("description", releaseDescription);
+        release.put("status", "submitted");
+        release.put("audioPath", audioReference.getPath());
+        release.put("coverPath", coverReference.getPath());
+        release.put("createdAt", FieldValue.serverTimestamp());
+
+        firestore.collection("artistReleases")
+                .document(releaseId)
+                .set(release)
+                .addOnSuccessListener(unused -> {
+                    if (isFinishing()) {
+                        return;
+                    }
+
+                    setUploading(false, "Release submitted successfully.");
+
+                    showMessage(
+                            "Your release has been uploaded and submitted for review."
+                    );
+
+                    finish();
+                })
+                .addOnFailureListener(error -> {
+                    setUploading(false, "Could not save release record.");
+
+                    showMessage(
+                            "Files uploaded, but release details could not be saved. " +
+                            "Please contact support before retrying."
+                    );
+                });
+    }
+
+    private void setUploading(boolean value, String message) {
+        uploading = value;
+
+        if (submitButton != null) {
+            submitButton.setEnabled(!value);
+            submitButton.setText(
+                    value ? "PLEASE WAIT..." : "SUBMIT RELEASE"
+            );
+            submitButton.setAlpha(value ? 0.6f : 1f);
+        }
+
+        if (uploadStatus != null) {
+            uploadStatus.setText(message);
+        }
     }
 
     private EditText addField(
