@@ -1,3 +1,4 @@
+
 package com.mminohub.app;
 
 import android.app.Activity;
@@ -60,7 +61,7 @@ public class ArtistEarningsActivity extends Activity {
 
         TextView subtitle = new TextView(this);
         subtitle.setText(
-                "Understand how your music revenue is shared."
+                "Your music revenue, royalty share and payout information."
         );
         subtitle.setTextColor(MUTED);
         subtitle.setTextSize(13);
@@ -111,9 +112,7 @@ public class ArtistEarningsActivity extends Activity {
         card.addView(amount);
 
         TextView note = new TextView(this);
-        note.setText(
-                "No verified sales have been loaded yet."
-        );
+        note.setText("No verified sales have been recorded.");
         note.setTextColor(MUTED);
         note.setTextSize(12);
         card.addView(note);
@@ -317,9 +316,9 @@ public class ArtistEarningsActivity extends Activity {
 
         TextView info = new TextView(this);
         info.setText(
-                "Artist payouts through M-Pesa and EcoCash are " +
-                "planned. Provider integration, account verification " +
-                "and payout security must be completed before payments " +
+                "Artist payouts through M-Pesa and EcoCash are planned. " +
+                "Payment provider integration, account verification " +
+                "and payout security must be completed before payouts " +
                 "can be requested or processed."
         );
         info.setTextColor(MUTED);
@@ -339,15 +338,11 @@ public class ArtistEarningsActivity extends Activity {
     }
 
     private String formatPercent(double value) {
-        return String.format(
-                Locale.US, "%.0f%%", value
-        );
+        return String.format(Locale.US, "%.0f%%", value);
     }
 
     private String money(double value) {
-        return String.format(
-                Locale.US, "M %.2f", value
-        );
+        return String.format(Locale.US, "M %.2f", value);
     }
 
     private GradientDrawable background(int color, int radius) {
