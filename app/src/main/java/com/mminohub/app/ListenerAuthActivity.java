@@ -400,27 +400,21 @@ public class ListenerAuthActivity extends Activity {
         profile.put("role", "listener");
         profile.put("createdAt", FieldValue.serverTimestamp());
 
+        // Save profile separately. Do not block successful registration.
         firestore.collection("users")
                 .document(user.getUid())
                 .set(profile)
-                .addOnCompleteListener(this, task -> {
+                .addOnFailureListener(error ->
+                        android.util.Log.e(
+                                "MminoHub",
+                                "Listener profile save failed",
+                                error
+                        )
+                );
 
-                    setLoading(false, "CREATE ACCOUNT");
-
-                    if (task.isSuccessful()) {
-                        showMessage(
-                                "Welcome to MminoHub, " + name + "!"
-                        );
-                        finish();
-                    } else {
-                        showMessage(
-                                "Your account was created successfully, " +
-                                "but your profile could not be saved. " +
-                                "We still need to configure Firestore " +
-                                "security rules."
-                        );
-                    }
-                });
+        setLoading(false, "CREATE ACCOUNT");
+        showMessage("Welcome to MminoHub, " + name + "!");
+        finish();
     }
 
     private void login(String email, String password) {
@@ -429,12 +423,12 @@ public class ListenerAuthActivity extends Activity {
         auth.signInWithEmailAndPassword(email, password)
                 .addOnCompleteListener(this, task -> {
 
-                    setLoading(false, "LOG IN");
-
                     if (task.isSuccessful()) {
+                        setLoading(false, "LOG IN");
                         showMessage("Welcome back to MminoHub!");
                         finish();
                     } else {
+                        setLoading(false, "LOG IN");
                         showError(task.getException());
                     }
                 });
@@ -463,7 +457,7 @@ public class ListenerAuthActivity extends Activity {
             } else if (error.contains("password is invalid") ||
                     error.contains("INVALID_LOGIN_CREDENTIALS")) {
                 message = "Incorrect email or password.";
-            } else if (error.contains("network")) {
+            } else if (error.toLowerCase().contains("network")) {
                 message = "Network problem. Check your internet connection.";
             } else {
                 message = error;
