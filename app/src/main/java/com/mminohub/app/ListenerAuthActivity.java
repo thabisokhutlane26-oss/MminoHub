@@ -1,3 +1,4 @@
+
 package com.mminohub.app;
 
 import android.app.Activity;
@@ -15,6 +16,14 @@ import android.widget.LinearLayout;
 import android.widget.ScrollView;
 import android.widget.TextView;
 import android.widget.Toast;
+
+import com.google.firebase.auth.FirebaseAuth;
+import com.google.firebase.auth.FirebaseUser;
+import com.google.firebase.firestore.FirebaseFirestore;
+import com.google.firebase.firestore.FieldValue;
+
+import java.util.HashMap;
+import java.util.Map;
 
 public class ListenerAuthActivity extends Activity {
 
@@ -36,8 +45,12 @@ public class ListenerAuthActivity extends Activity {
     private TextView subtitle;
     private Button submitButton;
 
+    private FirebaseAuth auth;
+    private FirebaseFirestore firestore;
+
     private boolean registrationMode = true;
     private boolean passwordVisible = false;
+    private boolean requestRunning = false;
 
     private int dp(float value) {
         return (int) (value * getResources()
@@ -47,6 +60,9 @@ public class ListenerAuthActivity extends Activity {
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
+
+        auth = FirebaseAuth.getInstance();
+        firestore = FirebaseFirestore.getInstance();
 
         buildScreen();
         updateMode();
@@ -174,6 +190,8 @@ public class ListenerAuthActivity extends Activity {
         modeSwitch.setGravity(Gravity.CENTER);
         modeSwitch.setPadding(0, dp(22), 0, dp(5));
         modeSwitch.setOnClickListener(v -> {
+            if (requestRunning) return;
+
             registrationMode = !registrationMode;
             updateMode();
         });
@@ -182,9 +200,9 @@ public class ListenerAuthActivity extends Activity {
 
         TextView notice = new TextView(this);
         notice.setText(
-                "Account creation and secure login will be activated " +
-                "when MminoHub's authentication backend is connected. " +
-                "This screen currently validates information locally only."
+                "Secure account services powered by Firebase. " +
+                "Your account details are protected by " +
+                "MminoHub's authentication system."
         );
         notice.setTextColor(MUTED);
         notice.setTextSize(11);
@@ -290,6 +308,8 @@ public class ListenerAuthActivity extends Activity {
     }
 
     private void validateForm() {
+        if (requestRunning) return;
+
         String name = nameInput.getText().toString().trim();
         String email = emailInput.getText().toString().trim();
         String password = passwordInput.getText().toString();
@@ -300,8 +320,9 @@ public class ListenerAuthActivity extends Activity {
             return;
         }
 
-        if (email.isEmpty() || !android.util.Patterns.EMAIL_ADDRESS
-                .matcher(email).matches()) {
+        if (email.isEmpty() ||
+                !android.util.Patterns.EMAIL_ADDRESS
+                        .matcher(email).matches()) {
             emailInput.setError("Enter a valid email address");
             return;
         }
@@ -329,10 +350,133 @@ public class ListenerAuthActivity extends Activity {
             return;
         }
 
+        if (registrationMode) {
+            createAccount(name, email, password);
+        } else {
+            login(email, password);
+        }
+    }
+
+    private void createAccount(
+            String name,
+            String email,
+            String password
+    ) {
+        setLoading(true, "CREATING ACCOUNT...");
+
+        auth.createUserWithEmailAndPassword(email, password)
+                .addOnCompleteListener(this, task -> {
+
+                    if (!task.isSuccessful()) {
+                        setLoading(false, "CREATE ACCOUNT");
+                        showError(task.getException());
+                        return;
+                    }
+
+                    FirebaseUser user = auth.getCurrentUser();
+
+                    if (user == null) {
+                        setLoading(false, "CREATE ACCOUNT");
+                        showMessage(
+                                "Account created, but the user session " +
+                                "could not be loaded. Please log in."
+                        );
+                        return;
+                    }
+
+                    saveListenerProfile(user, name, email);
+                });
+    }
+
+    private void saveListenerProfile(
+            FirebaseUser user,
+            String name,
+            String email
+    ) {
+        Map<String, Object> profile = new HashMap<>();
+        profile.put("uid", user.getUid());
+        profile.put("name", name);
+        profile.put("email", email);
+        profile.put("role", "listener");
+        profile.put("createdAt", FieldValue.serverTimestamp());
+
+        firestore.collection("users")
+                .document(user.getUid())
+                .set(profile)
+                .addOnCompleteListener(this, task -> {
+
+                    setLoading(false, "CREATE ACCOUNT");
+
+                    if (task.isSuccessful()) {
+                        showMessage(
+                                "Welcome to MminoHub, " + name + "!"
+                        );
+                        finish();
+                    } else {
+                        showMessage(
+                                "Your account was created successfully, " +
+                                "but your profile could not be saved. " +
+                                "We still need to configure Firestore " +
+                                "security rules."
+                        );
+                    }
+                });
+    }
+
+    private void login(String email, String password) {
+        setLoading(true, "LOGGING IN...");
+
+        auth.signInWithEmailAndPassword(email, password)
+                .addOnCompleteListener(this, task -> {
+
+                    setLoading(false, "LOG IN");
+
+                    if (task.isSuccessful()) {
+                        showMessage("Welcome back to MminoHub!");
+                        finish();
+                    } else {
+                        showError(task.getException());
+                    }
+                });
+    }
+
+    private void setLoading(boolean loading, String buttonText) {
+        requestRunning = loading;
+        submitButton.setEnabled(!loading);
+        modeSwitch.setEnabled(!loading);
+        submitButton.setText(buttonText);
+        submitButton.setAlpha(loading ? 0.65f : 1.0f);
+    }
+
+    private void showError(Exception exception) {
+        String message = "Authentication failed. Please try again.";
+
+        if (exception != null &&
+                exception.getLocalizedMessage() != null) {
+
+            String error = exception.getLocalizedMessage();
+
+            if (error.contains("email address is already in use")) {
+                message = "This email already has an account. Please log in.";
+            } else if (error.contains("badly formatted")) {
+                message = "Please check your email address.";
+            } else if (error.contains("password is invalid") ||
+                    error.contains("INVALID_LOGIN_CREDENTIALS")) {
+                message = "Incorrect email or password.";
+            } else if (error.contains("network")) {
+                message = "Network problem. Check your internet connection.";
+            } else {
+                message = error;
+            }
+        }
+
+        showMessage(message);
+    }
+
+    private void showMessage(String message) {
         Toast.makeText(
                 this,
-                "Details validated. Secure account services " +
-                "will be available after backend integration.",
+                message,
                 Toast.LENGTH_LONG
         ).show();
     }
