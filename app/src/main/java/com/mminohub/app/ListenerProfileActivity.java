@@ -1,3 +1,4 @@
+
 package com.mminohub.app;
 
 import android.app.Activity;
@@ -5,7 +6,9 @@ import android.os.Bundle;
 import android.graphics.Color;
 import android.graphics.Typeface;
 import android.graphics.drawable.GradientDrawable;
+import android.content.res.ColorStateList;
 import android.view.Gravity;
+import android.view.View;
 import android.widget.Button;
 import android.widget.EditText;
 import android.widget.LinearLayout;
@@ -14,6 +17,14 @@ import android.widget.TextView;
 import android.widget.Toast;
 import android.widget.RadioGroup;
 import android.widget.RadioButton;
+
+import com.google.firebase.auth.FirebaseAuth;
+import com.google.firebase.auth.FirebaseUser;
+import com.google.firebase.firestore.FirebaseFirestore;
+import com.google.firebase.firestore.FieldValue;
+
+import java.util.HashMap;
+import java.util.Map;
 
 public class ListenerProfileActivity extends Activity {
 
@@ -26,8 +37,16 @@ public class ListenerProfileActivity extends Activity {
     private EditText nameInput;
     private EditText emailInput;
     private RadioGroup languageGroup;
+    private TextView headerName;
+    private Button editButton;
+    private Button saveButton;
+
+    private FirebaseAuth auth;
+    private FirebaseFirestore firestore;
+    private FirebaseUser currentUser;
 
     private boolean editing = false;
+    private boolean loading = false;
 
     private int dp(float value) {
         return (int) (value * getResources()
@@ -38,7 +57,12 @@ public class ListenerProfileActivity extends Activity {
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
 
+        auth = FirebaseAuth.getInstance();
+        firestore = FirebaseFirestore.getInstance();
+        currentUser = auth.getCurrentUser();
+
         buildScreen();
+        loadProfile();
     }
 
     private void buildScreen() {
@@ -75,7 +99,6 @@ public class ListenerProfileActivity extends Activity {
         root.addView(subtitle);
 
         addProfileHeader(root);
-
         addSection(root, "PERSONAL INFORMATION");
 
         LinearLayout details = createCard();
@@ -83,23 +106,28 @@ public class ListenerProfileActivity extends Activity {
         nameInput = addInput(details, "Full name");
         emailInput = addInput(details, "Email address");
 
-        nameInput.setEnabled(false);
         emailInput.setEnabled(false);
+        emailInput.setFocusable(false);
 
-        Button editButton = createButton("EDIT PROFILE");
+        editButton = createButton("EDIT PROFILE");
         details.addView(editButton);
 
-        Button saveButton = createButton("SAVE CHANGES");
-        saveButton.setVisibility(android.view.View.GONE);
+        saveButton = createButton("SAVE CHANGES");
+        saveButton.setVisibility(View.GONE);
         details.addView(saveButton);
 
         editButton.setOnClickListener(v -> {
+            if (currentUser == null) {
+                showMessage("Please sign in first.");
+                return;
+            }
+
             editing = true;
             nameInput.setEnabled(true);
-            emailInput.setEnabled(true);
-            editButton.setVisibility(android.view.View.GONE);
-            saveButton.setVisibility(android.view.View.VISIBLE);
             nameInput.requestFocus();
+
+            editButton.setVisibility(View.GONE);
+            saveButton.setVisibility(View.VISIBLE);
         });
 
         saveButton.setOnClickListener(v -> saveProfile());
@@ -122,13 +150,31 @@ public class ListenerProfileActivity extends Activity {
 
         addLanguageOption(languageGroup, "Sesotho", 1);
         addLanguageOption(languageGroup, "English", 2);
-        languageGroup.check(1);
+
+        String savedLanguage = getPreferences(MODE_PRIVATE)
+                .getString("language", "Sesotho");
+
+        languageGroup.check(
+                savedLanguage.equals("English") ? 2 : 1
+        );
+
+        languageGroup.setOnCheckedChangeListener((group, checkedId) -> {
+            String selected = checkedId == 2
+                    ? "English" : "Sesotho";
+
+            getPreferences(MODE_PRIVATE)
+                    .edit()
+                    .putString("language", selected)
+                    .apply();
+
+            showMessage("Language preference saved: " + selected);
+        });
 
         languageCard.addView(languageGroup);
 
         TextView languageNote = new TextView(this);
         languageNote.setText(
-                "Language selection is currently a local preference. " +
+                "Your language preference is saved on this device. " +
                 "Full app translation will be connected during integration."
         );
         languageNote.setTextColor(MUTED);
@@ -146,7 +192,9 @@ public class ListenerProfileActivity extends Activity {
         addAccountInfo(accountCard, "Platform", "MminoHub Lesotho");
 
         TextView status = new TextView(this);
-        status.setText("AUTHENTICATION NOT CONNECTED");
+        status.setText(currentUser == null
+                ? "NOT SIGNED IN"
+                : "FIREBASE ACCOUNT CONNECTED");
         status.setTextColor(GOLD);
         status.setTextSize(10);
         status.setTypeface(null, Typeface.BOLD);
@@ -158,13 +206,8 @@ public class ListenerProfileActivity extends Activity {
                 Color.rgb(92, 39, 48), 12
         ));
         signOut.setTextColor(WHITE);
-        signOut.setOnClickListener(v ->
-                Toast.makeText(
-                        this,
-                        "No active backend session to sign out from.",
-                        Toast.LENGTH_LONG
-                ).show()
-        );
+
+        signOut.setOnClickListener(v -> signOut());
 
         accountCard.addView(signOut);
         root.addView(accountCard);
@@ -178,6 +221,177 @@ public class ListenerProfileActivity extends Activity {
         root.addView(footer);
 
         setContentView(scroll);
+    }
+
+    private void loadProfile() {
+        if (currentUser == null) {
+            nameInput.setText("");
+            emailInput.setText("");
+            showMessage("Sign in to view your profile.");
+            return;
+        }
+
+        emailInput.setText(currentUser.getEmail() == null
+                ? "" : currentUser.getEmail());
+
+        firestore.collection("users")
+                .document(currentUser.getUid())
+                .get()
+                .addOnSuccessListener(document -> {
+                    if (isFinishing()) return;
+
+                    String name = "";
+
+                    if (document.exists()) {
+                        name = document.getString("name");
+                    }
+
+                    if (name == null || name.trim().isEmpty()) {
+                        name = currentUser.getDisplayName();
+                    }
+
+                    if (name == null || name.trim().isEmpty()) {
+                        name = "MminoHub Listener";
+                    }
+
+                    nameInput.setText(name);
+                    headerName.setText(name);
+                })
+                .addOnFailureListener(error -> {
+                    android.util.Log.e(
+                            "MminoHub",
+                            "Profile loading failed",
+                            error
+                    );
+
+                    String fallback = currentUser.getDisplayName();
+
+                    if (fallback == null || fallback.trim().isEmpty()) {
+                        fallback = "MminoHub Listener";
+                    }
+
+                    nameInput.setText(fallback);
+                    headerName.setText(fallback);
+
+                    showMessage("Could not load saved profile.");
+                });
+    }
+
+    private void saveProfile() {
+        if (loading) return;
+
+        if (currentUser == null) {
+            showMessage("Please sign in first.");
+            return;
+        }
+
+        String name = nameInput.getText().toString().trim();
+
+        if (name.isEmpty()) {
+            nameInput.setError("Enter your name");
+            return;
+        }
+
+        if (name.length() < 2) {
+            nameInput.setError("Name is too short");
+            return;
+        }
+
+        loading = true;
+        saveButton.setEnabled(false);
+        saveButton.setText("SAVING...");
+
+        String uid = currentUser.getUid();
+        String email = currentUser.getEmail();
+
+        firestore.collection("users")
+                .document(uid)
+                .get()
+                .addOnSuccessListener(document -> {
+
+                    if (isFinishing()) return;
+
+                    if (document.exists()) {
+                        firestore.collection("users")
+                                .document(uid)
+                                .update("name", name)
+                                .addOnSuccessListener(unused ->
+                                        profileSaved(name))
+                                .addOnFailureListener(this::saveFailed);
+
+                    } else {
+                        Map<String, Object> profile =
+                                new HashMap<>();
+
+                        profile.put("uid", uid);
+                        profile.put("name", name);
+                        profile.put("email",
+                                email == null ? "" : email);
+                        profile.put("role", "listener");
+                        profile.put(
+                                "createdAt",
+                                FieldValue.serverTimestamp()
+                        );
+
+                        firestore.collection("users")
+                                .document(uid)
+                                .set(profile)
+                                .addOnSuccessListener(unused ->
+                                        profileSaved(name))
+                                .addOnFailureListener(this::saveFailed);
+                    }
+                })
+                .addOnFailureListener(this::saveFailed);
+    }
+
+    private void profileSaved(String name) {
+        loading = false;
+        editing = false;
+
+        nameInput.setText(name);
+        nameInput.setEnabled(false);
+
+        headerName.setText(name);
+
+        saveButton.setEnabled(true);
+        saveButton.setText("SAVE CHANGES");
+        saveButton.setVisibility(View.GONE);
+        editButton.setVisibility(View.VISIBLE);
+
+        showMessage("Your profile has been saved.");
+    }
+
+    private void saveFailed(Exception error) {
+        loading = false;
+
+        saveButton.setEnabled(true);
+        saveButton.setText("SAVE CHANGES");
+
+        android.util.Log.e(
+                "MminoHub",
+                "Profile save failed",
+                error
+        );
+
+        showMessage("Profile could not be saved. Check your connection and Firestore rules.");
+    }
+
+    private void signOut() {
+        if (auth.getCurrentUser() == null) {
+            showMessage("You are already signed out.");
+            return;
+        }
+
+        new android.app.AlertDialog.Builder(this)
+                .setTitle("Sign out")
+                .setMessage("Are you sure you want to sign out?")
+                .setNegativeButton("CANCEL", null)
+                .setPositiveButton("SIGN OUT", (dialog, which) -> {
+                    auth.signOut();
+                    showMessage("You have signed out.");
+                    finish();
+                })
+                .show();
     }
 
     private void addProfileHeader(LinearLayout parent) {
@@ -194,15 +408,16 @@ public class ListenerProfileActivity extends Activity {
 
         LinearLayout.LayoutParams avatarParams =
                 new LinearLayout.LayoutParams(dp(75), dp(75));
+
         card.addView(avatar, avatarParams);
 
-        TextView name = new TextView(this);
-        name.setText("MminoHub Listener");
-        name.setTextColor(WHITE);
-        name.setTextSize(18);
-        name.setTypeface(null, Typeface.BOLD);
-        name.setPadding(0, dp(12), 0, dp(4));
-        card.addView(name);
+        headerName = new TextView(this);
+        headerName.setText("MminoHub Listener");
+        headerName.setTextColor(WHITE);
+        headerName.setTextSize(18);
+        headerName.setTypeface(null, Typeface.BOLD);
+        headerName.setPadding(0, dp(12), 0, dp(4));
+        card.addView(headerName);
 
         TextView type = new TextView(this);
         type.setText("LISTENER PROFILE");
@@ -226,6 +441,7 @@ public class ListenerProfileActivity extends Activity {
 
         params.topMargin = dp(23);
         params.bottomMargin = dp(12);
+
         parent.addView(section, params);
     }
 
@@ -252,9 +468,10 @@ public class ListenerProfileActivity extends Activity {
 
         LinearLayout.LayoutParams params =
                 new LinearLayout.LayoutParams(-1, dp(48));
-        params.bottomMargin = dp(12);
 
+        params.bottomMargin = dp(12);
         parent.addView(input, params);
+
         return input;
     }
 
@@ -268,37 +485,11 @@ public class ListenerProfileActivity extends Activity {
 
         LinearLayout.LayoutParams params =
                 new LinearLayout.LayoutParams(-1, dp(47));
+
         params.topMargin = dp(8);
-
         button.setLayoutParams(params);
+
         return button;
-    }
-
-    private void saveProfile() {
-        String name = nameInput.getText().toString().trim();
-        String email = emailInput.getText().toString().trim();
-
-        if (name.isEmpty()) {
-            nameInput.setError("Enter your name");
-            return;
-        }
-
-        if (!android.util.Patterns.EMAIL_ADDRESS
-                .matcher(email).matches()) {
-            emailInput.setError("Enter a valid email address");
-            return;
-        }
-
-        nameInput.setEnabled(false);
-        emailInput.setEnabled(false);
-        editing = false;
-
-        Toast.makeText(
-                this,
-                "Details checked. Profile saving will be enabled " +
-                "after backend integration.",
-                Toast.LENGTH_LONG
-        ).show();
     }
 
     private void addLanguageOption(
@@ -312,7 +503,7 @@ public class ListenerProfileActivity extends Activity {
         radio.setTextColor(WHITE);
         radio.setTextSize(13);
         radio.setButtonTintList(
-                android.content.res.ColorStateList.valueOf(GOLD)
+                ColorStateList.valueOf(GOLD)
         );
         group.addView(radio);
     }
@@ -328,6 +519,14 @@ public class ListenerProfileActivity extends Activity {
         info.setTextSize(12);
         info.setPadding(0, dp(5), 0, dp(5));
         parent.addView(info);
+    }
+
+    private void showMessage(String message) {
+        Toast.makeText(
+                this,
+                message,
+                Toast.LENGTH_LONG
+        ).show();
     }
 
     private GradientDrawable background(int color, int radius) {
