@@ -1,3 +1,4 @@
+
 package com.mminohub.app;
 
 import android.app.Activity;
@@ -10,6 +11,14 @@ import android.widget.LinearLayout;
 import android.widget.ScrollView;
 import android.widget.TextView;
 
+import com.google.firebase.auth.FirebaseAuth;
+import com.google.firebase.auth.FirebaseUser;
+import com.google.firebase.firestore.DocumentSnapshot;
+import com.google.firebase.firestore.FirebaseFirestore;
+import com.google.firebase.firestore.QuerySnapshot;
+
+import java.util.Locale;
+
 public class ReleaseManagementActivity extends Activity {
 
     private final int BG = Color.rgb(8, 17, 30);
@@ -17,6 +26,13 @@ public class ReleaseManagementActivity extends Activity {
     private final int GOLD = Color.rgb(232, 190, 91);
     private final int WHITE = Color.WHITE;
     private final int MUTED = Color.rgb(170, 181, 195);
+
+    private TextView releaseCount;
+    private TextView summaryDescription;
+    private LinearLayout releaseContainer;
+
+    private FirebaseAuth auth;
+    private FirebaseFirestore firestore;
 
     private int dp(float value) {
         return (int) (value * getResources()
@@ -26,6 +42,9 @@ public class ReleaseManagementActivity extends Activity {
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
+
+        auth = FirebaseAuth.getInstance();
+        firestore = FirebaseFirestore.getInstance();
 
         ScrollView scroll = new ScrollView(this);
         scroll.setFillViewport(true);
@@ -63,45 +82,46 @@ public class ReleaseManagementActivity extends Activity {
 
         addSummaryCard(root);
 
-        addSection(root, "RELEASE STATUS");
+        addSection(root, "MY RELEASES");
 
-        addReleaseStatus(
+        releaseContainer = new LinearLayout(this);
+        releaseContainer.setOrientation(LinearLayout.VERTICAL);
+        root.addView(releaseContainer);
+
+        addSection(root, "RELEASE STATUS GUIDE");
+
+        addStatusGuide(
                 root,
                 "DRAFT",
-                "Not submitted",
-                "Complete your release details before submission.",
+                "Release details are being prepared.",
                 Color.rgb(155, 165, 180)
         );
 
-        addReleaseStatus(
+        addStatusGuide(
                 root,
                 "SUBMITTED",
-                "Received by MminoHub",
-                "Your release has been submitted for review.",
+                "The release has been sent for review.",
                 Color.rgb(100, 181, 246)
         );
 
-        addReleaseStatus(
+        addStatusGuide(
                 root,
                 "PENDING REVIEW",
-                "Waiting for administrator",
-                "The review team has not completed its checks.",
+                "The release is waiting for administrator review.",
                 GOLD
         );
 
-        addReleaseStatus(
+        addStatusGuide(
                 root,
                 "APPROVED",
-                "Ready for publication",
-                "Your release has passed the approval process.",
+                "The release has passed the approval process.",
                 Color.rgb(76, 210, 145)
         );
 
-        addReleaseStatus(
+        addStatusGuide(
                 root,
                 "REJECTED",
-                "Changes required",
-                "Review the administrator's reason and correct the release.",
+                "Changes may be required before resubmission.",
                 Color.rgb(255, 110, 110)
         );
 
@@ -109,10 +129,9 @@ public class ReleaseManagementActivity extends Activity {
 
         TextView information = new TextView(this);
         information.setText(
-                "Release statuses shown here describe the MminoHub " +
-                "workflow. Your actual release records and status " +
-                "updates will appear after the secure backend and " +
-                "administrator review system are connected."
+                "Only release records saved in MminoHub will appear " +
+                "above. Approval and publication must be handled " +
+                "through the authorised review process."
         );
         information.setTextColor(MUTED);
         information.setTextSize(12);
@@ -129,6 +148,8 @@ public class ReleaseManagementActivity extends Activity {
         root.addView(footer);
 
         setContentView(scroll);
+
+        loadReleases();
     }
 
     private void addSummaryCard(LinearLayout parent) {
@@ -144,23 +165,245 @@ public class ReleaseManagementActivity extends Activity {
         heading.setTypeface(null, Typeface.BOLD);
         card.addView(heading);
 
-        TextView count = new TextView(this);
-        count.setText("0");
-        count.setTextColor(WHITE);
-        count.setTextSize(32);
-        count.setTypeface(null, Typeface.BOLD);
-        count.setPadding(0, dp(7), 0, dp(3));
-        card.addView(count);
+        releaseCount = new TextView(this);
+        releaseCount.setText("...");
+        releaseCount.setTextColor(WHITE);
+        releaseCount.setTextSize(32);
+        releaseCount.setTypeface(null, Typeface.BOLD);
+        releaseCount.setPadding(0, dp(7), 0, dp(3));
+        card.addView(releaseCount);
 
-        TextView description = new TextView(this);
-        description.setText(
-                "No release records have been loaded yet."
-        );
-        description.setTextColor(MUTED);
-        description.setTextSize(12);
-        card.addView(description);
+        summaryDescription = new TextView(this);
+        summaryDescription.setText("Loading your release records...");
+        summaryDescription.setTextColor(MUTED);
+        summaryDescription.setTextSize(12);
+        card.addView(summaryDescription);
 
         parent.addView(card);
+    }
+
+    private void loadReleases() {
+        FirebaseUser user = auth.getCurrentUser();
+
+        if (user == null) {
+            showLoadMessage(
+                    "SIGN IN REQUIRED",
+                    "Sign in to view your release records."
+            );
+            releaseCount.setText("0");
+            summaryDescription.setText("No signed-in artist account.");
+            return;
+        }
+
+        firestore.collection("artistReleases")
+                .whereEqualTo("artistId", user.getUid())
+                .get()
+                .addOnSuccessListener(this::displayReleases)
+                .addOnFailureListener(error -> {
+                    if (isFinishing()) {
+                        return;
+                    }
+
+                    releaseCount.setText("--");
+                    summaryDescription.setText(
+                            "Release records could not be loaded."
+                    );
+
+                    showLoadMessage(
+                            "RELEASES UNAVAILABLE",
+                            "Check your connection and Firestore permissions. " +
+                            "Release records will appear here when available."
+                    );
+                });
+    }
+
+    private void displayReleases(QuerySnapshot snapshot) {
+        if (isFinishing()) {
+            return;
+        }
+
+        releaseContainer.removeAllViews();
+
+        int count = snapshot.size();
+        releaseCount.setText(String.valueOf(count));
+
+        if (count == 0) {
+            summaryDescription.setText(
+                    "No release records have been submitted yet."
+            );
+
+            showLoadMessage(
+                    "NO RELEASES YET",
+                    "Your saved music releases will appear here after " +
+                    "they are submitted through the artist upload process."
+            );
+            return;
+        }
+
+        summaryDescription.setText(
+                count == 1
+                        ? "1 release record found."
+                        : count + " release records found."
+        );
+
+        for (DocumentSnapshot document : snapshot.getDocuments()) {
+            String title = document.getString("title");
+            String status = document.getString("status");
+            String reviewNote = document.getString("reviewNote");
+
+            if (title == null || title.trim().isEmpty()) {
+                title = "Untitled release";
+            }
+
+            if (status == null || status.trim().isEmpty()) {
+                status = "submitted";
+            }
+
+            addReleaseCard(
+                    releaseContainer,
+                    title,
+                    status,
+                    reviewNote
+            );
+        }
+    }
+
+    private void addReleaseCard(
+            LinearLayout parent,
+            String releaseTitle,
+            String status,
+            String reviewNote
+    ) {
+        LinearLayout card = new LinearLayout(this);
+        card.setOrientation(LinearLayout.VERTICAL);
+        card.setPadding(dp(15), dp(15), dp(15), dp(15));
+        card.setBackground(background(CARD, 13));
+
+        TextView badge = new TextView(this);
+        badge.setText(formatStatus(status));
+        badge.setTextColor(getStatusColor(status));
+        badge.setTextSize(10);
+        badge.setTypeface(null, Typeface.BOLD);
+        card.addView(badge);
+
+        TextView title = new TextView(this);
+        title.setText(releaseTitle);
+        title.setTextColor(WHITE);
+        title.setTextSize(16);
+        title.setTypeface(null, Typeface.BOLD);
+        title.setPadding(0, dp(8), 0, dp(5));
+        card.addView(title);
+
+        String description = getStatusDescription(status);
+
+        if (reviewNote != null && !reviewNote.trim().isEmpty()) {
+            description += "\n\nReview note: " + reviewNote.trim();
+        }
+
+        TextView info = new TextView(this);
+        info.setText(description);
+        info.setTextColor(MUTED);
+        info.setTextSize(12);
+        card.addView(info);
+
+        LinearLayout.LayoutParams params =
+                new LinearLayout.LayoutParams(-1, -2);
+
+        params.bottomMargin = dp(10);
+        parent.addView(card, params);
+    }
+
+    private String formatStatus(String status) {
+        return status.replace('_', ' ')
+                .toUpperCase(Locale.ROOT);
+    }
+
+    private int getStatusColor(String status) {
+        String value = status.toLowerCase(Locale.ROOT);
+
+        if (value.equals("approved") || value.equals("published")) {
+            return Color.rgb(76, 210, 145);
+        }
+
+        if (value.equals("rejected")) {
+            return Color.rgb(255, 110, 110);
+        }
+
+        if (value.equals("submitted")) {
+            return Color.rgb(100, 181, 246);
+        }
+
+        if (value.equals("pending") || value.equals("pending_review")) {
+            return GOLD;
+        }
+
+        return Color.rgb(155, 165, 180);
+    }
+
+    private String getStatusDescription(String status) {
+        String value = status.toLowerCase(Locale.ROOT);
+
+        if (value.equals("approved")) {
+            return "Your release has been approved.";
+        }
+
+        if (value.equals("published")) {
+            return "Your release has been published.";
+        }
+
+        if (value.equals("rejected")) {
+            return "Your release was not approved. Check the review note.";
+        }
+
+        if (value.equals("pending") || value.equals("pending_review")) {
+            return "Your release is waiting for administrator review.";
+        }
+
+        if (value.equals("submitted")) {
+            return "Your release has been submitted to MminoHub.";
+        }
+
+        if (value.equals("draft")) {
+            return "This release is still being prepared.";
+        }
+
+        return "Release status: " + formatStatus(status);
+    }
+
+    private void showLoadMessage(String heading, String description) {
+        if (releaseContainer == null) {
+            return;
+        }
+
+        releaseContainer.removeAllViews();
+
+        LinearLayout card = new LinearLayout(this);
+        card.setOrientation(LinearLayout.VERTICAL);
+        card.setPadding(dp(15), dp(15), dp(15), dp(15));
+        card.setBackground(background(CARD, 13));
+
+        TextView title = new TextView(this);
+        title.setText(heading);
+        title.setTextColor(GOLD);
+        title.setTextSize(14);
+        title.setTypeface(null, Typeface.BOLD);
+        card.addView(title);
+
+        TextView info = new TextView(this);
+        info.setText(description);
+        info.setTextColor(MUTED);
+        info.setTextSize(12);
+        info.setPadding(0, dp(7), 0, 0);
+        card.addView(info);
+
+        parentAdd(releaseContainer, card);
+    }
+
+    private void parentAdd(LinearLayout parent, LinearLayout card) {
+        LinearLayout.LayoutParams params =
+                new LinearLayout.LayoutParams(-1, -2);
+        params.bottomMargin = dp(10);
+        parent.addView(card, params);
     }
 
     private void addSection(LinearLayout parent, String text) {
@@ -177,16 +420,15 @@ public class ReleaseManagementActivity extends Activity {
         parent.addView(section, params);
     }
 
-    private void addReleaseStatus(
+    private void addStatusGuide(
             LinearLayout parent,
             String status,
-            String heading,
             String description,
             int statusColor
     ) {
         LinearLayout card = new LinearLayout(this);
         card.setOrientation(LinearLayout.VERTICAL);
-        card.setPadding(dp(15), dp(15), dp(15), dp(15));
+        card.setPadding(dp(15), dp(13), dp(15), dp(13));
         card.setBackground(background(CARD, 13));
 
         TextView badge = new TextView(this);
@@ -196,23 +438,16 @@ public class ReleaseManagementActivity extends Activity {
         badge.setTypeface(null, Typeface.BOLD);
         card.addView(badge);
 
-        TextView title = new TextView(this);
-        title.setText(heading);
-        title.setTextColor(WHITE);
-        title.setTextSize(15);
-        title.setTypeface(null, Typeface.BOLD);
-        title.setPadding(0, dp(7), 0, dp(5));
-        card.addView(title);
-
         TextView info = new TextView(this);
         info.setText(description);
         info.setTextColor(MUTED);
         info.setTextSize(12);
+        info.setPadding(0, dp(5), 0, 0);
         card.addView(info);
 
         LinearLayout.LayoutParams params =
                 new LinearLayout.LayoutParams(-1, -2);
-        params.bottomMargin = dp(10);
+        params.bottomMargin = dp(9);
         parent.addView(card, params);
     }
 
