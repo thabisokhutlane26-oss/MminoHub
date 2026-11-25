@@ -1,3 +1,4 @@
+
 package com.mminohub.app;
 
 import android.app.Activity;
@@ -10,6 +11,13 @@ import android.widget.LinearLayout;
 import android.widget.ScrollView;
 import android.widget.TextView;
 
+import com.google.firebase.auth.FirebaseAuth;
+import com.google.firebase.auth.FirebaseUser;
+import com.google.firebase.firestore.DocumentSnapshot;
+import com.google.firebase.firestore.FirebaseFirestore;
+
+import java.util.Locale;
+
 public class ArtistDashboardActivity extends Activity {
 
     private final int BG = Color.rgb(8, 17, 30);
@@ -17,6 +25,13 @@ public class ArtistDashboardActivity extends Activity {
     private final int GOLD = Color.rgb(232, 190, 91);
     private final int WHITE = Color.WHITE;
     private final int MUTED = Color.rgb(170, 181, 195);
+
+    private TextView artistName;
+    private TextView applicationStatus;
+    private TextView applicationDescription;
+
+    private FirebaseAuth auth;
+    private FirebaseFirestore firestore;
 
     private int dp(float value) {
         return (int) (value * getResources()
@@ -26,6 +41,9 @@ public class ArtistDashboardActivity extends Activity {
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
+
+        auth = FirebaseAuth.getInstance();
+        firestore = FirebaseFirestore.getInstance();
 
         ScrollView scroll = new ScrollView(this);
         scroll.setFillViewport(true);
@@ -53,12 +71,22 @@ public class ArtistDashboardActivity extends Activity {
         title.setTypeface(null, Typeface.BOLD);
         root.addView(title);
 
+        artistName = new TextView(this);
+        artistName.setText("Welcome, Artist");
+        artistName.setTextColor(GOLD);
+        artistName.setTextSize(16);
+        artistName.setTypeface(null, Typeface.BOLD);
+        artistName.setPadding(0, dp(7), 0, 0);
+        root.addView(artistName);
+
         TextView subtitle = new TextView(this);
         subtitle.setText("Your music. Your audience. Your growth.");
         subtitle.setTextColor(MUTED);
         subtitle.setTextSize(13);
-        subtitle.setPadding(0, dp(7), 0, dp(22));
+        subtitle.setPadding(0, dp(5), 0, dp(22));
         root.addView(subtitle);
+
+        addApplicationCard(root);
 
         addEarningsCard(root);
 
@@ -106,7 +134,7 @@ public class ArtistDashboardActivity extends Activity {
         payout.setText(
                 "MminoHub plans to support M-Pesa and EcoCash " +
                 "artist payouts, subject to payment-provider approval. " +
-                "No payout balance or payment is available in this demo screen."
+                "No payout balance or payment is available yet."
         );
         payout.setTextColor(MUTED);
         payout.setTextSize(12);
@@ -123,6 +151,136 @@ public class ArtistDashboardActivity extends Activity {
         root.addView(footer);
 
         setContentView(scroll);
+
+        loadArtistApplication();
+    }
+
+    private void addApplicationCard(LinearLayout parent) {
+        LinearLayout card = new LinearLayout(this);
+        card.setOrientation(LinearLayout.VERTICAL);
+        card.setPadding(dp(16), dp(16), dp(16), dp(16));
+        card.setBackground(background(CARD, 14));
+
+        TextView heading = new TextView(this);
+        heading.setText("ARTIST ACCOUNT STATUS");
+        heading.setTextColor(GOLD);
+        heading.setTextSize(11);
+        heading.setTypeface(null, Typeface.BOLD);
+        card.addView(heading);
+
+        applicationStatus = new TextView(this);
+        applicationStatus.setText("CHECKING STATUS...");
+        applicationStatus.setTextColor(WHITE);
+        applicationStatus.setTextSize(19);
+        applicationStatus.setTypeface(null, Typeface.BOLD);
+        applicationStatus.setPadding(0, dp(9), 0, dp(5));
+        card.addView(applicationStatus);
+
+        applicationDescription = new TextView(this);
+        applicationDescription.setText(
+                "Loading your artist application."
+        );
+        applicationDescription.setTextColor(MUTED);
+        applicationDescription.setTextSize(12);
+        card.addView(applicationDescription);
+
+        parent.addView(card);
+    }
+
+    private void loadArtistApplication() {
+        FirebaseUser user = auth.getCurrentUser();
+
+        if (user == null) {
+            artistName.setText("Welcome to MminoHub");
+            applicationStatus.setText("SIGN IN REQUIRED");
+            applicationDescription.setText(
+                    "Sign in to view your artist dashboard."
+            );
+            return;
+        }
+
+        artistName.setText("Welcome, " + getDisplayName(user));
+
+        firestore.collection("artistApplications")
+                .document(user.getUid())
+                .get()
+                .addOnSuccessListener(this::displayArtistApplication)
+                .addOnFailureListener(error -> {
+                    if (isFinishing()) {
+                        return;
+                    }
+
+                    applicationStatus.setText("STATUS UNAVAILABLE");
+                    applicationDescription.setText(
+                            "We could not load your artist application. " +
+                            "Check your internet connection and try again."
+                    );
+                });
+    }
+
+    private String getDisplayName(FirebaseUser user) {
+        String name = user.getDisplayName();
+
+        if (name != null && !name.trim().isEmpty()) {
+            return name.trim();
+        }
+
+        String email = user.getEmail();
+
+        if (email != null && email.contains("@")) {
+            return email.substring(0, email.indexOf("@"));
+        }
+
+        return "Artist";
+    }
+
+    private void displayArtistApplication(DocumentSnapshot document) {
+        if (isFinishing()) {
+            return;
+        }
+
+        if (!document.exists()) {
+            applicationStatus.setText("NO ARTIST APPLICATION");
+            applicationDescription.setText(
+                    "Submit your artist registration to start your " +
+                    "MminoHub artist journey."
+            );
+            return;
+        }
+
+        String name = document.getString("artistName");
+
+        if (name != null && !name.trim().isEmpty()) {
+            artistName.setText("Welcome, " + name.trim());
+        }
+
+        String status = document.getString("status");
+
+        if (status == null) {
+            status = "pending";
+        }
+
+        String normalStatus = status.toLowerCase(Locale.ROOT);
+
+        if ("approved".equals(normalStatus)) {
+            applicationStatus.setText("ARTIST APPROVED");
+            applicationDescription.setText(
+                    "Your artist application has been approved. " +
+                    "You can continue preparing your music releases."
+            );
+        } else if ("rejected".equals(normalStatus)) {
+            applicationStatus.setText("APPLICATION NOT APPROVED");
+            applicationDescription.setText(
+                    "Your artist application was not approved. " +
+                    "Please contact MminoHub support for assistance."
+            );
+        } else {
+            applicationStatus.setText("APPLICATION PENDING");
+            applicationDescription.setText(
+                    "Your artist application has been received and is " +
+                    "waiting for review. Your account is not yet approved."
+            );
+        }
     }
 
     private void addEarningsCard(LinearLayout parent) {
@@ -148,8 +306,8 @@ public class ArtistDashboardActivity extends Activity {
 
         TextView note = new TextView(this);
         note.setText(
-                "No earnings data available yet. Amounts will be " +
-                "calculated from verified transactions."
+                "No verified earnings are available yet. Earnings " +
+                "will be calculated from completed transactions."
         );
         note.setTextColor(MUTED);
         note.setTextSize(12);
