@@ -1,4 +1,3 @@
-
 package com.mminohub.app;
 
 import android.app.Activity;
