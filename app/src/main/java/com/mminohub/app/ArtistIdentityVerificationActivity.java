@@ -14,6 +14,13 @@ import android.widget.ScrollView;
 import android.widget.TextView;
 import android.widget.Toast;
 
+import com.google.firebase.auth.FirebaseAuth;
+import com.google.firebase.auth.FirebaseUser;
+import com.google.firebase.firestore.DocumentSnapshot;
+import com.google.firebase.firestore.FirebaseFirestore;
+
+import java.util.Locale;
+
 public class ArtistIdentityVerificationActivity extends Activity {
 
     private final int BG = Color.rgb(8, 17, 30);
@@ -23,6 +30,12 @@ public class ArtistIdentityVerificationActivity extends Activity {
     private final int MUTED = Color.rgb(170, 181, 195);
 
     private CheckBox consent;
+    private TextView applicationStatus;
+    private TextView verificationStatus;
+    private TextView statusDescription;
+
+    private FirebaseAuth auth;
+    private FirebaseFirestore firestore;
 
     private int dp(float value) {
         return (int) (value * getResources()
@@ -32,6 +45,9 @@ public class ArtistIdentityVerificationActivity extends Activity {
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
+
+        auth = FirebaseAuth.getInstance();
+        firestore = FirebaseFirestore.getInstance();
 
         ScrollView scroll = new ScrollView(this);
         scroll.setFillViewport(true);
@@ -157,6 +173,8 @@ public class ArtistIdentityVerificationActivity extends Activity {
         root.addView(footer);
 
         setContentView(scroll);
+
+        loadApplicationStatus();
     }
 
     private void addStatusCard(LinearLayout parent) {
@@ -166,29 +184,134 @@ public class ArtistIdentityVerificationActivity extends Activity {
         card.setBackground(background(CARD, 14));
 
         TextView heading = new TextView(this);
-        heading.setText("VERIFICATION STATUS");
+        heading.setText("ARTIST APPLICATION");
         heading.setTextColor(GOLD);
         heading.setTextSize(11);
         heading.setTypeface(null, Typeface.BOLD);
         card.addView(heading);
 
-        TextView status = new TextView(this);
-        status.setText("NOT SUBMITTED");
-        status.setTextColor(WHITE);
-        status.setTextSize(20);
-        status.setTypeface(null, Typeface.BOLD);
-        status.setPadding(0, dp(8), 0, dp(5));
-        card.addView(status);
+        applicationStatus = new TextView(this);
+        applicationStatus.setText("CHECKING STATUS...");
+        applicationStatus.setTextColor(WHITE);
+        applicationStatus.setTextSize(19);
+        applicationStatus.setTypeface(null, Typeface.BOLD);
+        applicationStatus.setPadding(0, dp(8), 0, dp(12));
+        card.addView(applicationStatus);
 
-        TextView description = new TextView(this);
-        description.setText(
-                "Your identity documents have not yet been collected."
+        TextView verificationHeading = new TextView(this);
+        verificationHeading.setText("IDENTITY VERIFICATION");
+        verificationHeading.setTextColor(GOLD);
+        verificationHeading.setTextSize(11);
+        verificationHeading.setTypeface(null, Typeface.BOLD);
+        card.addView(verificationHeading);
+
+        verificationStatus = new TextView(this);
+        verificationStatus.setText("NOT STARTED");
+        verificationStatus.setTextColor(WHITE);
+        verificationStatus.setTextSize(17);
+        verificationStatus.setTypeface(null, Typeface.BOLD);
+        verificationStatus.setPadding(0, dp(7), 0, dp(5));
+        card.addView(verificationStatus);
+
+        statusDescription = new TextView(this);
+        statusDescription.setText(
+                "Checking your artist application."
         );
-        description.setTextColor(MUTED);
-        description.setTextSize(12);
-        card.addView(description);
+        statusDescription.setTextColor(MUTED);
+        statusDescription.setTextSize(12);
+        card.addView(statusDescription);
 
         parent.addView(card);
+    }
+
+    private void loadApplicationStatus() {
+        FirebaseUser user = auth.getCurrentUser();
+
+        if (user == null) {
+            applicationStatus.setText("SIGN IN REQUIRED");
+            verificationStatus.setText("UNAVAILABLE");
+            statusDescription.setText(
+                    "Sign in to view your artist application."
+            );
+            return;
+        }
+
+        firestore.collection("artistApplications")
+                .document(user.getUid())
+                .get()
+                .addOnSuccessListener(this::displayApplicationStatus)
+                .addOnFailureListener(error -> {
+                    applicationStatus.setText("STATUS UNAVAILABLE");
+                    verificationStatus.setText("UNAVAILABLE");
+                    statusDescription.setText(
+                            "Could not load your application. " +
+                            "Please check your connection and try again."
+                    );
+                });
+    }
+
+    private void displayApplicationStatus(DocumentSnapshot document) {
+        if (isFinishing()) {
+            return;
+        }
+
+        if (!document.exists()) {
+            applicationStatus.setText("NOT SUBMITTED");
+            verificationStatus.setText("NOT STARTED");
+            statusDescription.setText(
+                    "No artist application was found for this account. " +
+                    "Submit your artist application first."
+            );
+            return;
+        }
+
+        String status = document.getString("status");
+
+        if (status == null) {
+            status = "pending";
+        }
+
+        String normalStatus = status.toLowerCase(Locale.ROOT);
+
+        if ("approved".equals(normalStatus)) {
+            applicationStatus.setText("ARTIST APPLICATION APPROVED");
+        } else if ("rejected".equals(normalStatus)) {
+            applicationStatus.setText("APPLICATION NOT APPROVED");
+        } else {
+            applicationStatus.setText("APPLICATION PENDING REVIEW");
+        }
+
+        // This field is optional and can only be supplied by
+        // a trusted verification backend or administrator.
+        String identity = document.getString("verificationStatus");
+
+        if (identity == null || identity.trim().isEmpty()) {
+            verificationStatus.setText("NOT STARTED");
+            statusDescription.setText(
+                    "Your artist application is saved. Secure identity " +
+                    "document submission is not yet available."
+            );
+        } else {
+            String displayIdentity =
+                    identity.replace('_', ' ')
+                            .toUpperCase(Locale.ROOT);
+
+            verificationStatus.setText(displayIdentity);
+
+            if ("verified".equalsIgnoreCase(identity)) {
+                statusDescription.setText(
+                        "Your identity verification has been marked as verified."
+                );
+            } else if ("rejected".equalsIgnoreCase(identity)) {
+                statusDescription.setText(
+                        "Your identity verification was not approved."
+                );
+            } else {
+                statusDescription.setText(
+                        "Your identity verification status is being processed."
+                );
+            }
+        }
     }
 
     private void addSection(LinearLayout parent, String text) {
@@ -257,9 +380,8 @@ public class ArtistIdentityVerificationActivity extends Activity {
 
         Toast.makeText(
                 this,
-                "Identity verification requirements acknowledged. " +
-                "Secure document submission will be enabled " +
-                "when the backend is ready.",
+                "Acknowledged. Secure identity document submission " +
+                "will be enabled when the verification backend is ready.",
                 Toast.LENGTH_LONG
         ).show();
     }
