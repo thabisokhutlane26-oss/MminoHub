@@ -1,3 +1,4 @@
+
 package com.mminohub.app;
 
 import android.app.Activity;
@@ -6,7 +7,6 @@ import android.graphics.Color;
 import android.graphics.Typeface;
 import android.graphics.drawable.GradientDrawable;
 import android.view.Gravity;
-import android.view.View;
 import android.widget.ArrayAdapter;
 import android.widget.Button;
 import android.widget.EditText;
@@ -18,10 +18,10 @@ import android.widget.Toast;
 
 import com.google.firebase.auth.FirebaseAuth;
 import com.google.firebase.auth.FirebaseUser;
-import com.google.firebase.firestore.FieldValue;
 import com.google.firebase.firestore.FirebaseFirestore;
 
 import java.util.HashMap;
+import java.util.Locale;
 import java.util.Map;
 import java.util.UUID;
 
@@ -39,13 +39,17 @@ public class MusicUploadActivity extends Activity {
     private Spinner releaseType;
 
     private TextView artistNameView;
+    private TextView approvalStatusView;
     private Button saveButton;
 
     private FirebaseAuth auth;
     private FirebaseFirestore firestore;
 
     private String registeredArtistName = "";
+
+    private boolean artistApproved = false;
     private boolean saving = false;
+    private boolean checkingApproval = true;
 
     private int dp(float value) {
         return (int) (value * getResources()
@@ -119,6 +123,13 @@ public class MusicUploadActivity extends Activity {
         artistNameView.setPadding(0, dp(8), 0, 0);
         artistCard.addView(artistNameView);
 
+        approvalStatusView = new TextView(this);
+        approvalStatusView.setText("CHECKING APPROVAL...");
+        approvalStatusView.setTextColor(MUTED);
+        approvalStatusView.setTextSize(12);
+        approvalStatusView.setPadding(0, dp(8), 0, 0);
+        artistCard.addView(approvalStatusView);
+
         root.addView(artistCard);
 
         addSection(root, "02  RELEASE INFORMATION");
@@ -163,7 +174,7 @@ public class MusicUploadActivity extends Activity {
 
         TextView statusInfo = new TextView(this);
         statusInfo.setText(
-                "You can save release information as a draft. " +
+                "Approved artists can save release information as a draft. " +
                 "Audio uploads, artwork uploads and distribution " +
                 "will become available when MminoHub's secure " +
                 "distribution service is ready."
@@ -190,11 +201,13 @@ public class MusicUploadActivity extends Activity {
         root.addView(notice);
 
         saveButton = new Button(this);
-        saveButton.setText("SAVE RELEASE DRAFT");
+        saveButton.setText("CHECKING ARTIST APPROVAL...");
         saveButton.setTextColor(BG);
         saveButton.setTextSize(13);
         saveButton.setTypeface(null, Typeface.BOLD);
         saveButton.setBackground(background(GOLD, 14));
+        saveButton.setEnabled(false);
+        saveButton.setAlpha(0.5f);
         saveButton.setOnClickListener(v -> saveDraft());
 
         LinearLayout.LayoutParams buttonParams =
@@ -220,10 +233,15 @@ public class MusicUploadActivity extends Activity {
 
         if (user == null) {
             artistNameView.setText("SIGN IN REQUIRED");
-            saveButton.setEnabled(false);
-            saveButton.setAlpha(0.5f);
+            approvalStatusView.setText(
+                    "Sign in to access artist features."
+            );
+            setSaveEnabled(false);
             return;
         }
+
+        setSaveEnabled(false);
+        checkingApproval = true;
 
         firestore.collection("artistApplications")
                 .document(user.getUid())
@@ -234,12 +252,20 @@ public class MusicUploadActivity extends Activity {
                         return;
                     }
 
+                    checkingApproval = false;
+
                     if (!document.exists()) {
+                        artistApproved = false;
+
                         artistNameView.setText(
                                 "ARTIST APPLICATION NOT FOUND"
                         );
-                        saveButton.setEnabled(false);
-                        saveButton.setAlpha(0.5f);
+
+                        approvalStatusView.setText(
+                                "Register as an artist before creating releases."
+                        );
+
+                        updateSaveButton();
                         return;
                     }
 
@@ -253,8 +279,45 @@ public class MusicUploadActivity extends Activity {
                     }
 
                     artistNameView.setText(registeredArtistName);
-                    saveButton.setEnabled(true);
-                    saveButton.setAlpha(1f);
+
+                    String status = document.getString("status");
+
+                    if (status == null) {
+                        status = "pending";
+                    }
+
+                    String normalStatus =
+                            status.trim().toLowerCase(Locale.ROOT);
+
+                    if ("approved".equals(normalStatus)) {
+
+                        artistApproved = true;
+
+                        approvalStatusView.setText(
+                                "✓ ARTIST APPLICATION APPROVED"
+                        );
+                        approvalStatusView.setTextColor(GREEN);
+
+                    } else if ("rejected".equals(normalStatus)) {
+
+                        artistApproved = false;
+
+                        approvalStatusView.setText(
+                                "APPLICATION NOT APPROVED"
+                        );
+                        approvalStatusView.setTextColor(MUTED);
+
+                    } else {
+
+                        artistApproved = false;
+
+                        approvalStatusView.setText(
+                                "APPLICATION PENDING REVIEW"
+                        );
+                        approvalStatusView.setTextColor(GOLD);
+                    }
+
+                    updateSaveButton();
                 })
                 .addOnFailureListener(error -> {
 
@@ -262,12 +325,18 @@ public class MusicUploadActivity extends Activity {
                         return;
                     }
 
+                    checkingApproval = false;
+                    artistApproved = false;
+
                     artistNameView.setText(
                             "ARTIST PROFILE UNAVAILABLE"
                     );
 
-                    saveButton.setEnabled(false);
-                    saveButton.setAlpha(0.5f);
+                    approvalStatusView.setText(
+                            "Could not verify artist approval. Please try again."
+                    );
+
+                    updateSaveButton();
 
                     android.util.Log.e(
                             "MminoHub",
@@ -277,9 +346,34 @@ public class MusicUploadActivity extends Activity {
                 });
     }
 
-    private void saveDraft() {
+    private void updateSaveButton() {
 
         if (saving) {
+            return;
+        }
+
+        boolean enabled = artistApproved && !checkingApproval;
+
+        saveButton.setEnabled(enabled);
+        saveButton.setAlpha(enabled ? 1f : 0.5f);
+
+        if (checkingApproval) {
+            saveButton.setText("CHECKING ARTIST APPROVAL...");
+        } else if (artistApproved) {
+            saveButton.setText("SAVE RELEASE DRAFT");
+        } else {
+            saveButton.setText("ARTIST APPROVAL REQUIRED");
+        }
+    }
+
+    private void setSaveEnabled(boolean enabled) {
+        saveButton.setEnabled(enabled);
+        saveButton.setAlpha(enabled ? 1f : 0.5f);
+    }
+
+    private void saveDraft() {
+
+        if (saving || checkingApproval) {
             return;
         }
 
@@ -294,10 +388,10 @@ public class MusicUploadActivity extends Activity {
             return;
         }
 
-        if (registeredArtistName.trim().isEmpty()) {
+        if (!artistApproved) {
             Toast.makeText(
                     this,
-                    "Your artist profile is not ready.",
+                    "Your artist application must be approved first.",
                     Toast.LENGTH_LONG
             ).show();
             return;
@@ -309,7 +403,8 @@ public class MusicUploadActivity extends Activity {
         String releaseDescription = description.getText()
                 .toString().trim();
 
-        int selectedPosition = releaseType.getSelectedItemPosition();
+        int selectedPosition =
+                releaseType.getSelectedItemPosition();
 
         if (title.isEmpty()) {
             releaseTitle.setError("Enter a release title");
@@ -341,6 +436,90 @@ public class MusicUploadActivity extends Activity {
             return;
         }
 
+        saving = true;
+        saveButton.setEnabled(false);
+        saveButton.setText("VERIFYING APPROVAL...");
+
+        // Re-check approval immediately before saving.
+        firestore.collection("artistApplications")
+                .document(user.getUid())
+                .get()
+                .addOnSuccessListener(document -> {
+
+                    if (isFinishing() || isDestroyed()) {
+                        return;
+                    }
+
+                    String latestStatus = document.exists()
+                            ? document.getString("status")
+                            : null;
+
+                    boolean stillApproved =
+                            latestStatus != null
+                            && "approved".equals(
+                                    latestStatus.trim()
+                                            .toLowerCase(Locale.ROOT)
+                            );
+
+                    if (!stillApproved) {
+
+                        saving = false;
+                        artistApproved = false;
+
+                        approvalStatusView.setText(
+                                "ARTIST APPROVAL REQUIRED"
+                        );
+
+                        approvalStatusView.setTextColor(GOLD);
+
+                        updateSaveButton();
+
+                        Toast.makeText(
+                                this,
+                                "Your artist approval could not be confirmed.",
+                                Toast.LENGTH_LONG
+                        ).show();
+
+                        return;
+                    }
+
+                    createReleaseDraft(
+                            user,
+                            title,
+                            releaseDescription,
+                            selectedType
+                    );
+                })
+                .addOnFailureListener(error -> {
+
+                    if (isFinishing() || isDestroyed()) {
+                        return;
+                    }
+
+                    saving = false;
+                    updateSaveButton();
+
+                    Toast.makeText(
+                            this,
+                            "Could not verify approval. Please try again.",
+                            Toast.LENGTH_LONG
+                    ).show();
+
+                    android.util.Log.e(
+                            "MminoHub",
+                            "Artist approval check failed",
+                            error
+                    );
+                });
+    }
+
+    private void createReleaseDraft(
+            FirebaseUser user,
+            String title,
+            String releaseDescription,
+            String selectedType
+    ) {
+
         String releaseId = UUID.randomUUID().toString();
 
         Map<String, Object> release = new HashMap<>();
@@ -355,8 +534,6 @@ public class MusicUploadActivity extends Activity {
         release.put("releaseDate", System.currentTimeMillis());
         release.put("trackCount", 0);
 
-        saving = true;
-        saveButton.setEnabled(false);
         saveButton.setText("SAVING DRAFT...");
 
         firestore.collection("artistReleases")
@@ -385,8 +562,7 @@ public class MusicUploadActivity extends Activity {
                     }
 
                     saving = false;
-                    saveButton.setEnabled(true);
-                    saveButton.setText("SAVE RELEASE DRAFT");
+                    updateSaveButton();
 
                     Toast.makeText(
                             this,
