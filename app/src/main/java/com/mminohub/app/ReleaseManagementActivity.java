@@ -1,3 +1,4 @@
+
 package com.mminohub.app;
 
 import android.app.Activity;
@@ -10,12 +11,15 @@ import android.widget.LinearLayout;
 import android.widget.ScrollView;
 import android.widget.TextView;
 
+import com.google.firebase.Timestamp;
 import com.google.firebase.auth.FirebaseAuth;
 import com.google.firebase.auth.FirebaseUser;
 import com.google.firebase.firestore.DocumentSnapshot;
 import com.google.firebase.firestore.FirebaseFirestore;
 import com.google.firebase.firestore.QuerySnapshot;
 
+import java.text.SimpleDateFormat;
+import java.util.Date;
 import java.util.Locale;
 
 public class ReleaseManagementActivity extends Activity {
@@ -72,7 +76,7 @@ public class ReleaseManagementActivity extends Activity {
 
         TextView subtitle = new TextView(this);
         subtitle.setText(
-                "Track your music releases and approval progress."
+                "Manage your Singles, EPs and Albums."
         );
         subtitle.setTextColor(MUTED);
         subtitle.setTextSize(13);
@@ -91,46 +95,46 @@ public class ReleaseManagementActivity extends Activity {
 
         addStatusGuide(
                 root,
-                "DRAFT",
-                "Release details are being prepared.",
+                Release.STATUS_DRAFT,
+                "Your release is still being prepared.",
                 Color.rgb(155, 165, 180)
         );
 
         addStatusGuide(
                 root,
-                "SUBMITTED",
-                "The release has been sent for review.",
+                Release.STATUS_SUBMITTED,
+                "Your release has been sent for review.",
                 Color.rgb(100, 181, 246)
         );
 
         addStatusGuide(
                 root,
-                "PENDING REVIEW",
-                "The release is waiting for administrator review.",
-                GOLD
-        );
-
-        addStatusGuide(
-                root,
-                "APPROVED",
-                "The release has passed the approval process.",
+                Release.STATUS_APPROVED,
+                "Your release has passed the approval process.",
                 Color.rgb(76, 210, 145)
         );
 
         addStatusGuide(
                 root,
-                "REJECTED",
-                "Changes may be required before resubmission.",
+                Release.STATUS_REJECTED,
+                "Review the rejection reason before making changes.",
                 Color.rgb(255, 110, 110)
+        );
+
+        addStatusGuide(
+                root,
+                Release.STATUS_PUBLISHED,
+                "Your release has been published.",
+                GOLD
         );
 
         addSection(root, "IMPORTANT");
 
         TextView information = new TextView(this);
         information.setText(
-                "Only release records saved in MminoHub will appear " +
-                "above. Approval and publication must be handled " +
-                "through the authorised review process."
+                "Release records are displayed from your artist " +
+                "account. Approval and publication must be handled " +
+                "through the authorised MminoHub review process."
         );
         information.setTextColor(MUTED);
         information.setTextSize(12);
@@ -158,7 +162,7 @@ public class ReleaseManagementActivity extends Activity {
         card.setBackground(background(CARD, 14));
 
         TextView heading = new TextView(this);
-        heading.setText("MY RELEASES");
+        heading.setText("TOTAL RELEASES");
         heading.setTextColor(GOLD);
         heading.setTextSize(11);
         heading.setTypeface(null, Typeface.BOLD);
@@ -173,7 +177,7 @@ public class ReleaseManagementActivity extends Activity {
         card.addView(releaseCount);
 
         summaryDescription = new TextView(this);
-        summaryDescription.setText("Loading your release records...");
+        summaryDescription.setText("Loading your releases...");
         summaryDescription.setTextColor(MUTED);
         summaryDescription.setTextSize(12);
         card.addView(summaryDescription);
@@ -185,39 +189,49 @@ public class ReleaseManagementActivity extends Activity {
         FirebaseUser user = auth.getCurrentUser();
 
         if (user == null) {
-            showLoadMessage(
+            releaseCount.setText("0");
+            summaryDescription.setText("No signed-in artist account.");
+
+            showMessage(
                     "SIGN IN REQUIRED",
                     "Sign in to view your release records."
             );
-            releaseCount.setText("0");
-            summaryDescription.setText("No signed-in artist account.");
             return;
         }
+
+        releaseCount.setText("...");
+        summaryDescription.setText("Loading your releases...");
 
         firestore.collection("artistReleases")
                 .whereEqualTo("artistId", user.getUid())
                 .get()
                 .addOnSuccessListener(this::displayReleases)
                 .addOnFailureListener(error -> {
-                    if (isFinishing()) {
+                    if (isFinishing() || isDestroyed()) {
                         return;
                     }
 
                     releaseCount.setText("--");
                     summaryDescription.setText(
-                            "Release records could not be loaded."
+                            "Your release records could not be loaded."
                     );
 
-                    showLoadMessage(
+                    showMessage(
                             "RELEASES UNAVAILABLE",
-                            "Check your connection and Firestore permissions. " +
-                            "Release records will appear here when available."
+                            "Check your internet connection and Firestore " +
+                            "permissions. Please try again later."
+                    );
+
+                    android.util.Log.e(
+                            "MminoHub",
+                            "Release loading failed",
+                            error
                     );
                 });
     }
 
     private void displayReleases(QuerySnapshot snapshot) {
-        if (isFinishing()) {
+        if (isFinishing() || isDestroyed()) {
             return;
         }
 
@@ -228,50 +242,80 @@ public class ReleaseManagementActivity extends Activity {
 
         if (count == 0) {
             summaryDescription.setText(
-                    "No release records have been submitted yet."
+                    "No releases have been saved yet."
             );
 
-            showLoadMessage(
+            showMessage(
                     "NO RELEASES YET",
-                    "Your saved music releases will appear here after " +
-                    "they are submitted through the artist upload process."
+                    "Your Singles, EPs and Albums will appear here " +
+                    "when release records are saved to MminoHub."
             );
             return;
         }
 
         summaryDescription.setText(
                 count == 1
-                        ? "1 release record found."
-                        : count + " release records found."
+                        ? "1 release found in your account."
+                        : count + " releases found in your account."
         );
 
         for (DocumentSnapshot document : snapshot.getDocuments()) {
+            String id = document.getId();
+
             String title = document.getString("title");
+            String description = document.getString("description");
+            String type = document.getString("type");
             String status = document.getString("status");
-            String reviewNote = document.getString("reviewNote");
+            String rejectionReason =
+                    document.getString("rejectionReason");
+
+            if (rejectionReason == null) {
+                rejectionReason = document.getString("reviewNote");
+            }
 
             if (title == null || title.trim().isEmpty()) {
                 title = "Untitled release";
             }
 
-            if (status == null || status.trim().isEmpty()) {
-                status = "submitted";
+            if (description == null) {
+                description = "";
             }
+
+            if (type == null) {
+                type = "RELEASE";
+            }
+
+            if (status == null || status.trim().isEmpty()) {
+                status = Release.STATUS_DRAFT;
+            }
+
+            long releaseDate = getReleaseDate(document);
+            long trackCount = getTrackCount(document);
 
             addReleaseCard(
                     releaseContainer,
+                    id,
                     title,
+                    description,
+                    type,
                     status,
-                    reviewNote
+                    releaseDate,
+                    trackCount,
+                    rejectionReason
             );
         }
     }
 
     private void addReleaseCard(
             LinearLayout parent,
+            String id,
             String releaseTitle,
+            String description,
+            String type,
             String status,
-            String reviewNote
+            long releaseDate,
+            long trackCount,
+            String rejectionReason
     ) {
         LinearLayout card = new LinearLayout(this);
         card.setOrientation(LinearLayout.VERTICAL);
@@ -288,88 +332,216 @@ public class ReleaseManagementActivity extends Activity {
         TextView title = new TextView(this);
         title.setText(releaseTitle);
         title.setTextColor(WHITE);
-        title.setTextSize(16);
+        title.setTextSize(17);
         title.setTypeface(null, Typeface.BOLD);
-        title.setPadding(0, dp(8), 0, dp(5));
+        title.setPadding(0, dp(9), 0, dp(5));
         card.addView(title);
 
-        String description = getStatusDescription(status);
+        TextView typeView = new TextView(this);
+        typeView.setText(formatType(type));
+        typeView.setTextColor(GOLD);
+        typeView.setTextSize(11);
+        typeView.setTypeface(null, Typeface.BOLD);
+        card.addView(typeView);
 
-        if (reviewNote != null && !reviewNote.trim().isEmpty()) {
-            description += "\n\nReview note: " + reviewNote.trim();
+        if (!description.trim().isEmpty()) {
+            TextView descriptionView = new TextView(this);
+            descriptionView.setText(description);
+            descriptionView.setTextColor(MUTED);
+            descriptionView.setTextSize(12);
+            descriptionView.setPadding(0, dp(8), 0, 0);
+            card.addView(descriptionView);
         }
 
-        TextView info = new TextView(this);
-        info.setText(description);
-        info.setTextColor(MUTED);
-        info.setTextSize(12);
-        card.addView(info);
+        TextView tracks = new TextView(this);
+        tracks.setText("Tracks: " + trackCount);
+        tracks.setTextColor(MUTED);
+        tracks.setTextSize(12);
+        tracks.setPadding(0, dp(8), 0, 0);
+        card.addView(tracks);
+
+        if (releaseDate > 0) {
+            TextView date = new TextView(this);
+            date.setText("Release date: " + formatDate(releaseDate));
+            date.setTextColor(MUTED);
+            date.setTextSize(12);
+            date.setPadding(0, dp(5), 0, 0);
+            card.addView(date);
+        }
+
+        String statusDescription = getStatusDescription(status);
+
+        TextView statusInfo = new TextView(this);
+        statusInfo.setText(statusDescription);
+        statusInfo.setTextColor(MUTED);
+        statusInfo.setTextSize(12);
+        statusInfo.setPadding(0, dp(10), 0, 0);
+        card.addView(statusInfo);
+
+        if (Release.STATUS_REJECTED.equals(normalizeStatus(status))
+                && rejectionReason != null
+                && !rejectionReason.trim().isEmpty()) {
+
+            TextView rejection = new TextView(this);
+            rejection.setText(
+                    "REVIEW REASON\n" + rejectionReason.trim()
+            );
+            rejection.setTextColor(
+                    Color.rgb(255, 140, 140)
+            );
+            rejection.setTextSize(12);
+            rejection.setPadding(0, dp(10), 0, 0);
+            card.addView(rejection);
+        }
+
+        TextView reference = new TextView(this);
+        reference.setText("Release ID: " + id);
+        reference.setTextColor(
+                Color.rgb(120, 135, 150)
+        );
+        reference.setTextSize(9);
+        reference.setPadding(0, dp(12), 0, 0);
+        card.addView(reference);
 
         LinearLayout.LayoutParams params =
                 new LinearLayout.LayoutParams(-1, -2);
 
-        params.bottomMargin = dp(10);
+        params.bottomMargin = dp(12);
         parent.addView(card, params);
     }
 
+    private long getReleaseDate(DocumentSnapshot document) {
+        Object value = document.get("releaseDate");
+
+        if (value instanceof Number) {
+            return ((Number) value).longValue();
+        }
+
+        if (value instanceof Timestamp) {
+            return ((Timestamp) value).toDate().getTime();
+        }
+
+        Object createdAt = document.get("createdAt");
+
+        if (createdAt instanceof Timestamp) {
+            return ((Timestamp) createdAt).toDate().getTime();
+        }
+
+        if (createdAt instanceof Number) {
+            return ((Number) createdAt).longValue();
+        }
+
+        return 0;
+    }
+
+    private long getTrackCount(DocumentSnapshot document) {
+        Object value = document.get("trackCount");
+
+        if (value instanceof Number) {
+            return ((Number) value).longValue();
+        }
+
+        return 0;
+    }
+
+    private String formatDate(long timestamp) {
+        SimpleDateFormat format = new SimpleDateFormat(
+                "dd MMM yyyy",
+                Locale.getDefault()
+        );
+
+        return format.format(new Date(timestamp));
+    }
+
+    private String normalizeStatus(String status) {
+        if (status == null) {
+            return Release.STATUS_DRAFT;
+        }
+
+        String value = status.trim()
+                .toUpperCase(Locale.ROOT)
+                .replace(' ', '_');
+
+        if (value.equals("PENDING")
+                || value.equals("PENDING_REVIEW")) {
+            return Release.STATUS_SUBMITTED;
+        }
+
+        return value;
+    }
+
     private String formatStatus(String status) {
-        return status.replace('_', ' ')
-                .toUpperCase(Locale.ROOT);
+        return normalizeStatus(status).replace('_', ' ');
+    }
+
+    private String formatType(String type) {
+        if (type == null) {
+            return "RELEASE";
+        }
+
+        String value = type.trim().toUpperCase(Locale.ROOT);
+
+        if (value.equals(Release.TYPE_SINGLE)) {
+            return "SINGLE";
+        }
+
+        if (value.equals(Release.TYPE_EP)) {
+            return "EXTENDED PLAY (EP)";
+        }
+
+        if (value.equals(Release.TYPE_ALBUM)) {
+            return "ALBUM";
+        }
+
+        return value.replace('_', ' ');
     }
 
     private int getStatusColor(String status) {
-        String value = status.toLowerCase(Locale.ROOT);
+        String value = normalizeStatus(status);
 
-        if (value.equals("approved") || value.equals("published")) {
+        if (value.equals(Release.STATUS_APPROVED)
+                || value.equals(Release.STATUS_PUBLISHED)) {
             return Color.rgb(76, 210, 145);
         }
 
-        if (value.equals("rejected")) {
+        if (value.equals(Release.STATUS_REJECTED)) {
             return Color.rgb(255, 110, 110);
         }
 
-        if (value.equals("submitted")) {
+        if (value.equals(Release.STATUS_SUBMITTED)) {
             return Color.rgb(100, 181, 246);
-        }
-
-        if (value.equals("pending") || value.equals("pending_review")) {
-            return GOLD;
         }
 
         return Color.rgb(155, 165, 180);
     }
 
     private String getStatusDescription(String status) {
-        String value = status.toLowerCase(Locale.ROOT);
+        String value = normalizeStatus(status);
 
-        if (value.equals("approved")) {
-            return "Your release has been approved.";
-        }
-
-        if (value.equals("published")) {
-            return "Your release has been published.";
-        }
-
-        if (value.equals("rejected")) {
-            return "Your release was not approved. Check the review note.";
-        }
-
-        if (value.equals("pending") || value.equals("pending_review")) {
-            return "Your release is waiting for administrator review.";
-        }
-
-        if (value.equals("submitted")) {
-            return "Your release has been submitted to MminoHub.";
-        }
-
-        if (value.equals("draft")) {
+        if (value.equals(Release.STATUS_DRAFT)) {
             return "This release is still being prepared.";
+        }
+
+        if (value.equals(Release.STATUS_SUBMITTED)) {
+            return "Your release has been submitted and is awaiting review.";
+        }
+
+        if (value.equals(Release.STATUS_APPROVED)) {
+            return "Your release has passed the approval process.";
+        }
+
+        if (value.equals(Release.STATUS_REJECTED)) {
+            return "Your release was not approved. Check the review reason.";
+        }
+
+        if (value.equals(Release.STATUS_PUBLISHED)) {
+            return "Your release has been published.";
         }
 
         return "Release status: " + formatStatus(status);
     }
 
-    private void showLoadMessage(String heading, String description) {
+    private void showMessage(String heading, String description) {
         if (releaseContainer == null) {
             return;
         }
@@ -395,14 +567,11 @@ public class ReleaseManagementActivity extends Activity {
         info.setPadding(0, dp(7), 0, 0);
         card.addView(info);
 
-        parentAdd(releaseContainer, card);
-    }
-
-    private void parentAdd(LinearLayout parent, LinearLayout card) {
         LinearLayout.LayoutParams params =
                 new LinearLayout.LayoutParams(-1, -2);
+
         params.bottomMargin = dp(10);
-        parent.addView(card, params);
+        releaseContainer.addView(card, params);
     }
 
     private void addSection(LinearLayout parent, String text) {
@@ -414,6 +583,7 @@ public class ReleaseManagementActivity extends Activity {
 
         LinearLayout.LayoutParams params =
                 new LinearLayout.LayoutParams(-1, -2);
+
         params.topMargin = dp(24);
         params.bottomMargin = dp(12);
         parent.addView(section, params);
@@ -431,7 +601,7 @@ public class ReleaseManagementActivity extends Activity {
         card.setBackground(background(CARD, 13));
 
         TextView badge = new TextView(this);
-        badge.setText(status);
+        badge.setText(status.replace('_', ' '));
         badge.setTextColor(statusColor);
         badge.setTextSize(10);
         badge.setTypeface(null, Typeface.BOLD);
@@ -446,6 +616,7 @@ public class ReleaseManagementActivity extends Activity {
 
         LinearLayout.LayoutParams params =
                 new LinearLayout.LayoutParams(-1, -2);
+
         params.bottomMargin = dp(9);
         parent.addView(card, params);
     }
@@ -454,7 +625,10 @@ public class ReleaseManagementActivity extends Activity {
         GradientDrawable drawable = new GradientDrawable();
         drawable.setColor(color);
         drawable.setCornerRadius(dp(radius));
-        drawable.setStroke(dp(1), Color.rgb(49, 62, 77));
+        drawable.setStroke(
+                dp(1),
+                Color.rgb(49, 62, 77)
+        );
         return drawable;
     }
 }
