@@ -6,6 +6,7 @@ import android.graphics.Color;
 import android.graphics.Typeface;
 import android.graphics.drawable.GradientDrawable;
 import android.view.Gravity;
+import android.view.View;
 import android.widget.ArrayAdapter;
 import android.widget.Button;
 import android.widget.EditText;
@@ -17,7 +18,12 @@ import android.widget.Toast;
 
 import com.google.firebase.auth.FirebaseAuth;
 import com.google.firebase.auth.FirebaseUser;
+import com.google.firebase.firestore.FieldValue;
 import com.google.firebase.firestore.FirebaseFirestore;
+
+import java.util.HashMap;
+import java.util.Map;
+import java.util.UUID;
 
 public class MusicUploadActivity extends Activity {
 
@@ -28,15 +34,18 @@ public class MusicUploadActivity extends Activity {
     private final int WHITE = Color.WHITE;
     private final int MUTED = Color.rgb(170, 181, 195);
 
-    private EditText songTitle;
-    private EditText artistName;
-    private EditText albumName;
+    private EditText releaseTitle;
     private EditText description;
+    private Spinner releaseType;
 
-    private Spinner genre;
+    private TextView artistNameView;
+    private Button saveButton;
 
     private FirebaseAuth auth;
     private FirebaseFirestore firestore;
+
+    private String registeredArtistName = "";
+    private boolean saving = false;
 
     private int dp(float value) {
         return (int) (value * getResources()
@@ -76,7 +85,7 @@ public class MusicUploadActivity extends Activity {
         root.addView(back);
 
         TextView title = new TextView(this);
-        title.setText("Upload Music");
+        title.setText("Create Release");
         title.setTextColor(WHITE);
         title.setTextSize(27);
         title.setTypeface(null, Typeface.BOLD);
@@ -84,91 +93,95 @@ public class MusicUploadActivity extends Activity {
 
         TextView subtitle = new TextView(this);
         subtitle.setText(
-                "Prepare your music for the Basotho community."
+                "Prepare your music release for the Basotho community."
         );
         subtitle.setTextColor(MUTED);
         subtitle.setTextSize(13);
         subtitle.setPadding(0, dp(7), 0, dp(22));
         root.addView(subtitle);
 
-        addSection(root, "01  MUSIC DISTRIBUTION");
+        addSection(root, "01  ARTIST ACCOUNT");
 
-        LinearLayout statusCard = createCard();
+        LinearLayout artistCard = createCard();
 
-        TextView status = new TextView(this);
-        status.setText("UPLOADS COMING SOON");
-        status.setTextColor(GREEN);
-        status.setTextSize(16);
-        status.setTypeface(null, Typeface.BOLD);
-        statusCard.addView(status);
+        TextView artistLabel = new TextView(this);
+        artistLabel.setText("REGISTERED ARTIST");
+        artistLabel.setTextColor(GOLD);
+        artistLabel.setTextSize(10);
+        artistLabel.setTypeface(null, Typeface.BOLD);
+        artistCard.addView(artistLabel);
 
-        TextView statusInfo = new TextView(this);
-        statusInfo.setText(
-                "MminoHub is preparing its secure music storage " +
-                "and distribution system. Artist uploads will open " +
-                "once the service is ready."
-        );
-        statusInfo.setTextColor(MUTED);
-        statusInfo.setTextSize(13);
-        statusInfo.setPadding(0, dp(10), 0, 0);
-        statusCard.addView(statusInfo);
+        artistNameView = new TextView(this);
+        artistNameView.setText("Loading artist profile...");
+        artistNameView.setTextColor(WHITE);
+        artistNameView.setTextSize(16);
+        artistNameView.setTypeface(null, Typeface.BOLD);
+        artistNameView.setPadding(0, dp(8), 0, 0);
+        artistCard.addView(artistNameView);
 
-        root.addView(statusCard);
+        root.addView(artistCard);
 
         addSection(root, "02  RELEASE INFORMATION");
 
-        songTitle = addField(
+        addLabel(root, "Release title");
+
+        releaseTitle = addField(
                 root,
-                "Song title",
-                "Enter the track title"
+                "Enter your release title"
         );
 
-        artistName = addField(
-                root,
-                "Artist name",
-                "Your registered artist name"
-        );
+        addLabel(root, "Release type");
 
-        albumName = addField(
-                root,
-                "Album or EP name",
-                "Optional"
-        );
-
-        addLabel(root, "Music genre");
-
-        genre = addSpinner(root, new String[]{
-                "Select music genre",
-                "Famo",
-                "Traditional Sesotho",
-                "Afro Pop",
-                "Hip Hop",
-                "Gospel",
-                "R&B",
-                "Maskandi",
-                "House",
-                "Other"
+        releaseType = addSpinner(root, new String[]{
+                "Select release type",
+                Release.TYPE_SINGLE,
+                Release.TYPE_EP,
+                Release.TYPE_ALBUM
         });
+
+        addLabel(root, "Release description");
 
         description = addField(
                 root,
-                "Release description",
-                "Tell listeners about this release"
+                "Describe your music release"
         );
 
         description.setMinLines(4);
         description.setGravity(Gravity.TOP);
         description.setSingleLine(false);
 
-        addSection(root, "03  RELEASE REQUIREMENTS");
+        addSection(root, "03  DISTRIBUTION STATUS");
+
+        LinearLayout statusCard = createCard();
+
+        TextView status = new TextView(this);
+        status.setText("DRAFT SAVING AVAILABLE");
+        status.setTextColor(GREEN);
+        status.setTextSize(14);
+        status.setTypeface(null, Typeface.BOLD);
+        statusCard.addView(status);
+
+        TextView statusInfo = new TextView(this);
+        statusInfo.setText(
+                "You can save release information as a draft. " +
+                "Audio uploads, artwork uploads and distribution " +
+                "will become available when MminoHub's secure " +
+                "distribution service is ready."
+        );
+        statusInfo.setTextColor(MUTED);
+        statusInfo.setTextSize(12);
+        statusInfo.setPadding(0, dp(9), 0, 0);
+        statusCard.addView(statusInfo);
+
+        root.addView(statusCard);
+
+        addSection(root, "04  IMPORTANT");
 
         TextView notice = new TextView(this);
         notice.setText(
-                "When uploads open, artists will be able to submit " +
-                "audio files and cover artwork. Every release will " +
-                "be reviewed before appearing in the public catalogue. " +
-                "Only submit music and artwork you own or are " +
-                "authorised to distribute."
+                "Saving a draft does not submit your music for review " +
+                "and does not publish it. Only submit music and artwork " +
+                "you own or are authorised to distribute."
         );
         notice.setTextColor(MUTED);
         notice.setTextSize(12);
@@ -176,29 +189,19 @@ public class MusicUploadActivity extends Activity {
         notice.setBackground(background(CARD, 14));
         root.addView(notice);
 
-        TextView uploadStatus = new TextView(this);
-        uploadStatus.setText(
-                "Music distribution is not available yet."
-        );
-        uploadStatus.setTextColor(GOLD);
-        uploadStatus.setTextSize(12);
-        uploadStatus.setPadding(0, dp(18), 0, dp(8));
-        root.addView(uploadStatus);
-
-        Button submitButton = new Button(this);
-        submitButton.setText("UPLOADS COMING SOON");
-        submitButton.setTextColor(BG);
-        submitButton.setTextSize(13);
-        submitButton.setTypeface(null, Typeface.BOLD);
-        submitButton.setBackground(background(GOLD, 14));
-        submitButton.setEnabled(false);
-        submitButton.setAlpha(0.8f);
+        saveButton = new Button(this);
+        saveButton.setText("SAVE RELEASE DRAFT");
+        saveButton.setTextColor(BG);
+        saveButton.setTextSize(13);
+        saveButton.setTypeface(null, Typeface.BOLD);
+        saveButton.setBackground(background(GOLD, 14));
+        saveButton.setOnClickListener(v -> saveDraft());
 
         LinearLayout.LayoutParams buttonParams =
                 new LinearLayout.LayoutParams(-1, dp(54));
 
-        buttonParams.topMargin = dp(10);
-        root.addView(submitButton, buttonParams);
+        buttonParams.topMargin = dp(22);
+        root.addView(saveButton, buttonParams);
 
         TextView footer = new TextView(this);
         footer.setText("MMINOHUB • BASOTHO MUSIC DISTRIBUTION");
@@ -216,6 +219,9 @@ public class MusicUploadActivity extends Activity {
         FirebaseUser user = auth.getCurrentUser();
 
         if (user == null) {
+            artistNameView.setText("SIGN IN REQUIRED");
+            saveButton.setEnabled(false);
+            saveButton.setAlpha(0.5f);
             return;
         }
 
@@ -228,25 +234,172 @@ public class MusicUploadActivity extends Activity {
                         return;
                     }
 
-                    if (document.exists()) {
-
-                        String savedName =
-                                document.getString("artistName");
-
-                        if (savedName != null &&
-                                !savedName.trim().isEmpty()) {
-
-                            artistName.setText(savedName);
-                        }
+                    if (!document.exists()) {
+                        artistNameView.setText(
+                                "ARTIST APPLICATION NOT FOUND"
+                        );
+                        saveButton.setEnabled(false);
+                        saveButton.setAlpha(0.5f);
+                        return;
                     }
+
+                    registeredArtistName =
+                            document.getString("artistName");
+
+                    if (registeredArtistName == null
+                            || registeredArtistName.trim().isEmpty()) {
+
+                        registeredArtistName = "Registered Artist";
+                    }
+
+                    artistNameView.setText(registeredArtistName);
+                    saveButton.setEnabled(true);
+                    saveButton.setAlpha(1f);
                 })
-                .addOnFailureListener(error ->
-                        android.util.Log.e(
-                                "MminoHub",
-                                "Could not load artist name",
-                                error
-                        )
-                );
+                .addOnFailureListener(error -> {
+
+                    if (isFinishing() || isDestroyed()) {
+                        return;
+                    }
+
+                    artistNameView.setText(
+                            "ARTIST PROFILE UNAVAILABLE"
+                    );
+
+                    saveButton.setEnabled(false);
+                    saveButton.setAlpha(0.5f);
+
+                    android.util.Log.e(
+                            "MminoHub",
+                            "Artist profile loading failed",
+                            error
+                    );
+                });
+    }
+
+    private void saveDraft() {
+
+        if (saving) {
+            return;
+        }
+
+        FirebaseUser user = auth.getCurrentUser();
+
+        if (user == null) {
+            Toast.makeText(
+                    this,
+                    "Please sign in first.",
+                    Toast.LENGTH_LONG
+            ).show();
+            return;
+        }
+
+        if (registeredArtistName.trim().isEmpty()) {
+            Toast.makeText(
+                    this,
+                    "Your artist profile is not ready.",
+                    Toast.LENGTH_LONG
+            ).show();
+            return;
+        }
+
+        String title = releaseTitle.getText()
+                .toString().trim();
+
+        String releaseDescription = description.getText()
+                .toString().trim();
+
+        int selectedPosition = releaseType.getSelectedItemPosition();
+
+        if (title.isEmpty()) {
+            releaseTitle.setError("Enter a release title");
+            releaseTitle.requestFocus();
+            return;
+        }
+
+        if (selectedPosition == 0) {
+            Toast.makeText(
+                    this,
+                    "Please select a release type.",
+                    Toast.LENGTH_SHORT
+            ).show();
+            return;
+        }
+
+        String selectedType =
+                releaseType.getSelectedItem().toString();
+
+        if (!selectedType.equals(Release.TYPE_SINGLE)
+                && !selectedType.equals(Release.TYPE_EP)
+                && !selectedType.equals(Release.TYPE_ALBUM)) {
+
+            Toast.makeText(
+                    this,
+                    "Invalid release type.",
+                    Toast.LENGTH_SHORT
+            ).show();
+            return;
+        }
+
+        String releaseId = UUID.randomUUID().toString();
+
+        Map<String, Object> release = new HashMap<>();
+
+        release.put("id", releaseId);
+        release.put("artistId", user.getUid());
+        release.put("title", title);
+        release.put("description", releaseDescription);
+        release.put("coverUrl", "");
+        release.put("type", selectedType);
+        release.put("status", Release.STATUS_DRAFT);
+        release.put("releaseDate", System.currentTimeMillis());
+        release.put("trackCount", 0);
+
+        saving = true;
+        saveButton.setEnabled(false);
+        saveButton.setText("SAVING DRAFT...");
+
+        firestore.collection("artistReleases")
+                .document(releaseId)
+                .set(release)
+                .addOnSuccessListener(unused -> {
+
+                    if (isFinishing() || isDestroyed()) {
+                        return;
+                    }
+
+                    saving = false;
+
+                    Toast.makeText(
+                            this,
+                            "Release draft saved successfully!",
+                            Toast.LENGTH_LONG
+                    ).show();
+
+                    finish();
+                })
+                .addOnFailureListener(error -> {
+
+                    if (isFinishing() || isDestroyed()) {
+                        return;
+                    }
+
+                    saving = false;
+                    saveButton.setEnabled(true);
+                    saveButton.setText("SAVE RELEASE DRAFT");
+
+                    Toast.makeText(
+                            this,
+                            "Could not save draft. Check your connection and Firestore rules.",
+                            Toast.LENGTH_LONG
+                    ).show();
+
+                    android.util.Log.e(
+                            "MminoHub",
+                            "Release draft save failed",
+                            error
+                    );
+                });
     }
 
     private LinearLayout createCard() {
@@ -266,11 +419,8 @@ public class MusicUploadActivity extends Activity {
 
     private EditText addField(
             LinearLayout parent,
-            String label,
             String hint
     ) {
-
-        addLabel(parent, label);
 
         EditText field = new EditText(this);
         field.setTextColor(WHITE);
@@ -289,7 +439,6 @@ public class MusicUploadActivity extends Activity {
                 new LinearLayout.LayoutParams(-1, dp(52));
 
         params.bottomMargin = dp(8);
-
         parent.addView(field, params);
 
         return field;
@@ -336,7 +485,6 @@ public class MusicUploadActivity extends Activity {
                 new LinearLayout.LayoutParams(-1, dp(52));
 
         params.bottomMargin = dp(8);
-
         parent.addView(spinner, params);
 
         return spinner;
