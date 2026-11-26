@@ -3,18 +3,22 @@ package com.mminohub.app;
 
 import android.app.Activity;
 import android.os.Bundle;
+import android.content.Intent;
 import android.graphics.Color;
 import android.graphics.Typeface;
 import android.graphics.drawable.GradientDrawable;
 import android.view.Gravity;
+import android.view.View;
 import android.widget.LinearLayout;
 import android.widget.ScrollView;
 import android.widget.TextView;
+import android.widget.Toast;
 
 import com.google.firebase.auth.FirebaseAuth;
 import com.google.firebase.auth.FirebaseUser;
 import com.google.firebase.firestore.DocumentSnapshot;
 import com.google.firebase.firestore.FirebaseFirestore;
+import com.google.firebase.firestore.QuerySnapshot;
 
 import java.util.Locale;
 
@@ -25,13 +29,17 @@ public class ArtistDashboardActivity extends Activity {
     private final int GOLD = Color.rgb(232, 190, 91);
     private final int WHITE = Color.WHITE;
     private final int MUTED = Color.rgb(170, 181, 195);
+    private final int GREEN = Color.rgb(65, 190, 125);
 
     private TextView artistName;
     private TextView applicationStatus;
     private TextView applicationDescription;
+    private TextView releaseCount;
 
     private FirebaseAuth auth;
     private FirebaseFirestore firestore;
+
+    private boolean artistApproved = false;
 
     private int dp(float value) {
         return (int) (value * getResources()
@@ -88,6 +96,8 @@ public class ArtistDashboardActivity extends Activity {
 
         addApplicationCard(root);
 
+        addReleaseActions(root);
+
         addEarningsCard(root);
 
         addSection(root, "PERFORMANCE");
@@ -104,7 +114,7 @@ public class ArtistDashboardActivity extends Activity {
         secondRow.setOrientation(LinearLayout.HORIZONTAL);
 
         addMetric(secondRow, "FOLLOWERS", "0");
-        addMetric(secondRow, "RELEASES", "0");
+        addReleaseMetric(secondRow);
 
         root.addView(secondRow);
 
@@ -113,13 +123,13 @@ public class ArtistDashboardActivity extends Activity {
         addActivityCard(
                 root,
                 "Music releases",
-                "Your submitted and approved releases will appear here."
+                "Your submitted and approved releases will appear in Release Management."
         );
 
         addActivityCard(
                 root,
                 "Audience growth",
-                "Your listener and follower statistics will appear here."
+                "Your listener and follower statistics will appear here when real activity is available."
         );
 
         addActivityCard(
@@ -156,6 +166,7 @@ public class ArtistDashboardActivity extends Activity {
     }
 
     private void addApplicationCard(LinearLayout parent) {
+
         LinearLayout card = new LinearLayout(this);
         card.setOrientation(LinearLayout.VERTICAL);
         card.setPadding(dp(16), dp(16), dp(16), dp(16));
@@ -187,7 +198,104 @@ public class ArtistDashboardActivity extends Activity {
         parent.addView(card);
     }
 
+    private void addReleaseActions(LinearLayout parent) {
+
+        addSection(parent, "RELEASE CENTRE");
+
+        addActionButton(
+                parent,
+                "+  CREATE NEW RELEASE",
+                "Prepare a new single, EP or album",
+                true,
+                () -> openArtistFeature(MusicUploadActivity.class)
+        );
+
+        addActionButton(
+                parent,
+                "▤  MANAGE MY RELEASES",
+                "View your drafts and release statuses",
+                false,
+                () -> openArtistFeature(ReleaseManagementActivity.class)
+        );
+    }
+
+    private void addActionButton(
+            LinearLayout parent,
+            String heading,
+            String description,
+            boolean primary,
+            Runnable action
+    ) {
+
+        LinearLayout button = new LinearLayout(this);
+        button.setOrientation(LinearLayout.VERTICAL);
+        button.setGravity(Gravity.CENTER_VERTICAL);
+        button.setPadding(dp(17), dp(15), dp(17), dp(15));
+        button.setBackground(background(
+                primary ? Color.rgb(45, 39, 25) : CARD,
+                13
+        ));
+
+        button.setClickable(true);
+        button.setFocusable(true);
+
+        TextView title = new TextView(this);
+        title.setText(heading);
+        title.setTextColor(primary ? GOLD : WHITE);
+        title.setTextSize(15);
+        title.setTypeface(null, Typeface.BOLD);
+
+        TextView info = new TextView(this);
+        info.setText(description);
+        info.setTextColor(MUTED);
+        info.setTextSize(12);
+        info.setPadding(0, dp(5), 0, 0);
+
+        button.addView(title);
+        button.addView(info);
+
+        LinearLayout.LayoutParams params =
+                new LinearLayout.LayoutParams(-1, -2);
+
+        params.bottomMargin = dp(10);
+
+        parent.addView(button, params);
+
+        button.setOnClickListener(v -> action.run());
+    }
+
+    private void openArtistFeature(Class<?> activityClass) {
+
+        FirebaseUser user = auth.getCurrentUser();
+
+        if (user == null) {
+            Toast.makeText(
+                    this,
+                    "Please sign in first.",
+                    Toast.LENGTH_SHORT
+            ).show();
+
+            startActivity(new Intent(
+                    this,
+                    ListenerAuthActivity.class
+            ));
+            return;
+        }
+
+        if (!artistApproved) {
+            Toast.makeText(
+                    this,
+                    "Your artist application must be approved before using release features.",
+                    Toast.LENGTH_LONG
+            ).show();
+            return;
+        }
+
+        startActivity(new Intent(this, activityClass));
+    }
+
     private void loadArtistApplication() {
+
         FirebaseUser user = auth.getCurrentUser();
 
         if (user == null) {
@@ -196,6 +304,7 @@ public class ArtistDashboardActivity extends Activity {
             applicationDescription.setText(
                     "Sign in to view your artist dashboard."
             );
+            artistApproved = false;
             return;
         }
 
@@ -204,11 +313,23 @@ public class ArtistDashboardActivity extends Activity {
         firestore.collection("artistApplications")
                 .document(user.getUid())
                 .get()
-                .addOnSuccessListener(this::displayArtistApplication)
-                .addOnFailureListener(error -> {
-                    if (isFinishing()) {
-                        return;
+                .addOnSuccessListener(document -> {
+
+                    if (isFinishing() || isDestroyed()) return;
+
+                    displayArtistApplication(document);
+
+                    if (document.exists()) {
+                        loadReleaseCount(user);
+                    } else {
+                        releaseCount.setText("0");
                     }
+                })
+                .addOnFailureListener(error -> {
+
+                    if (isFinishing() || isDestroyed()) return;
+
+                    artistApproved = false;
 
                     applicationStatus.setText("STATUS UNAVAILABLE");
                     applicationDescription.setText(
@@ -219,6 +340,7 @@ public class ArtistDashboardActivity extends Activity {
     }
 
     private String getDisplayName(FirebaseUser user) {
+
         String name = user.getDisplayName();
 
         if (name != null && !name.trim().isEmpty()) {
@@ -235,9 +357,10 @@ public class ArtistDashboardActivity extends Activity {
     }
 
     private void displayArtistApplication(DocumentSnapshot document) {
-        if (isFinishing()) {
-            return;
-        }
+
+        if (isFinishing() || isDestroyed()) return;
+
+        artistApproved = false;
 
         if (!document.exists()) {
             applicationStatus.setText("NO ARTIST APPLICATION");
@@ -263,19 +386,30 @@ public class ArtistDashboardActivity extends Activity {
         String normalStatus = status.toLowerCase(Locale.ROOT);
 
         if ("approved".equals(normalStatus)) {
+
+            artistApproved = true;
+
             applicationStatus.setText("ARTIST APPROVED");
+            applicationStatus.setTextColor(GREEN);
+
             applicationDescription.setText(
                     "Your artist application has been approved. " +
-                    "You can continue preparing your music releases."
+                    "You can prepare and manage your music releases."
             );
+
         } else if ("rejected".equals(normalStatus)) {
+
             applicationStatus.setText("APPLICATION NOT APPROVED");
+
             applicationDescription.setText(
                     "Your artist application was not approved. " +
                     "Please contact MminoHub support for assistance."
             );
+
         } else {
+
             applicationStatus.setText("APPLICATION PENDING");
+
             applicationDescription.setText(
                     "Your artist application has been received and is " +
                     "waiting for review. Your account is not yet approved."
@@ -283,7 +417,35 @@ public class ArtistDashboardActivity extends Activity {
         }
     }
 
+    private void loadReleaseCount(FirebaseUser user) {
+
+        firestore.collection("artistReleases")
+                .whereEqualTo("artistId", user.getUid())
+                .get()
+                .addOnSuccessListener(snapshot -> {
+
+                    if (isFinishing() || isDestroyed()) return;
+
+                    releaseCount.setText(
+                            String.valueOf(snapshot.size())
+                    );
+                })
+                .addOnFailureListener(error -> {
+
+                    if (isFinishing() || isDestroyed()) return;
+
+                    releaseCount.setText("--");
+
+                    android.util.Log.e(
+                            "MminoHub",
+                            "Could not load artist release count",
+                            error
+                    );
+                });
+    }
+
     private void addEarningsCard(LinearLayout parent) {
+
         LinearLayout card = new LinearLayout(this);
         card.setOrientation(LinearLayout.VERTICAL);
         card.setPadding(dp(18), dp(18), dp(18), dp(18));
@@ -317,6 +479,7 @@ public class ArtistDashboardActivity extends Activity {
     }
 
     private void addSection(LinearLayout parent, String text) {
+
         TextView section = new TextView(this);
         section.setText(text);
         section.setTextColor(GOLD);
@@ -337,6 +500,7 @@ public class ArtistDashboardActivity extends Activity {
             String label,
             String value
     ) {
+
         LinearLayout card = new LinearLayout(this);
         card.setOrientation(LinearLayout.VERTICAL);
         card.setPadding(dp(13), dp(15), dp(10), dp(15));
@@ -365,11 +529,42 @@ public class ArtistDashboardActivity extends Activity {
         parent.addView(card, params);
     }
 
+    private void addReleaseMetric(LinearLayout parent) {
+
+        LinearLayout card = new LinearLayout(this);
+        card.setOrientation(LinearLayout.VERTICAL);
+        card.setPadding(dp(13), dp(15), dp(10), dp(15));
+        card.setBackground(background(CARD, 13));
+
+        releaseCount = new TextView(this);
+        releaseCount.setText("...");
+        releaseCount.setTextColor(WHITE);
+        releaseCount.setTextSize(25);
+        releaseCount.setTypeface(null, Typeface.BOLD);
+        card.addView(releaseCount);
+
+        TextView heading = new TextView(this);
+        heading.setText("RELEASES");
+        heading.setTextColor(GOLD);
+        heading.setTextSize(10);
+        heading.setTypeface(null, Typeface.BOLD);
+        heading.setPadding(0, dp(5), 0, 0);
+        card.addView(heading);
+
+        LinearLayout.LayoutParams params =
+                new LinearLayout.LayoutParams(0, -2, 1);
+
+        params.setMargins(0, 0, dp(8), dp(9));
+
+        parent.addView(card, params);
+    }
+
     private void addActivityCard(
             LinearLayout parent,
             String heading,
             String description
     ) {
+
         LinearLayout card = new LinearLayout(this);
         card.setOrientation(LinearLayout.VERTICAL);
         card.setPadding(dp(15), dp(15), dp(15), dp(15));
@@ -398,10 +593,12 @@ public class ArtistDashboardActivity extends Activity {
     }
 
     private GradientDrawable background(int color, int radius) {
+
         GradientDrawable drawable = new GradientDrawable();
         drawable.setColor(color);
         drawable.setCornerRadius(dp(radius));
         drawable.setStroke(dp(1), Color.rgb(49, 62, 77));
+
         return drawable;
     }
 }
