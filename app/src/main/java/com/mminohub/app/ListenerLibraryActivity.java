@@ -1,15 +1,24 @@
 package com.mminohub.app;
 
 import android.app.Activity;
+import android.app.AlertDialog;
 import android.os.Bundle;
 import android.graphics.Color;
 import android.graphics.Typeface;
 import android.graphics.drawable.GradientDrawable;
 import android.view.Gravity;
+import android.view.View;
+import android.widget.EditText;
 import android.widget.LinearLayout;
 import android.widget.ScrollView;
 import android.widget.TextView;
 import android.widget.Toast;
+
+import com.google.firebase.auth.FirebaseAuth;
+import com.google.firebase.auth.FirebaseUser;
+
+import java.util.List;
+import java.util.Locale;
 
 public class ListenerLibraryActivity extends Activity {
 
@@ -18,6 +27,14 @@ public class ListenerLibraryActivity extends Activity {
     private final int GOLD = Color.rgb(232, 190, 91);
     private final int WHITE = Color.WHITE;
     private final int MUTED = Color.rgb(170, 181, 195);
+
+    private LinearLayout root;
+
+    private MminoHubRepository repository;
+    private LibraryManager libraryManager;
+    private PurchaseManager purchaseManager;
+
+    private FirebaseAuth auth;
 
     private int dp(float value) {
         return (int) (value * getResources()
@@ -28,17 +45,35 @@ public class ListenerLibraryActivity extends Activity {
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
 
+        auth = FirebaseAuth.getInstance();
+
+        repository = MminoHubRepository.getInstance();
+        libraryManager = repository.getLibraryManager();
+        purchaseManager = repository.getPurchaseManager();
+
         buildScreen();
     }
 
+    @Override
+    protected void onResume() {
+        super.onResume();
+
+        if (root != null) {
+            refreshLibrary();
+        }
+    }
+
     private void buildScreen() {
+
         ScrollView scroll = new ScrollView(this);
         scroll.setFillViewport(true);
         scroll.setBackgroundColor(BG);
 
-        LinearLayout root = new LinearLayout(this);
+        root = new LinearLayout(this);
         root.setOrientation(LinearLayout.VERTICAL);
-        root.setPadding(dp(20), dp(24), dp(20), dp(30));
+        root.setPadding(
+                dp(20), dp(24), dp(20), dp(30)
+        );
 
         scroll.addView(root);
 
@@ -49,6 +84,7 @@ public class ListenerLibraryActivity extends Activity {
         back.setTypeface(null, Typeface.BOLD);
         back.setPadding(0, 0, 0, dp(24));
         back.setOnClickListener(v -> finish());
+
         root.addView(back);
 
         TextView title = new TextView(this);
@@ -56,64 +92,142 @@ public class ListenerLibraryActivity extends Activity {
         title.setTextColor(WHITE);
         title.setTextSize(27);
         title.setTypeface(null, Typeface.BOLD);
+
         root.addView(title);
 
         TextView subtitle = new TextView(this);
         subtitle.setText(
-                "Your music collection, all in one place."
+                "Your Basotho music collection."
         );
         subtitle.setTextColor(MUTED);
         subtitle.setTextSize(13);
         subtitle.setPadding(0, dp(7), 0, dp(22));
+
         root.addView(subtitle);
 
-        addOverview(root);
+        refreshLibrary();
 
-        addSection(root, "MY COLLECTION");
+        setContentView(scroll);
+    }
 
-        addLibraryCard(
-                root,
-                "♫",
-                "Saved Songs",
-                "Music you save for later.",
-                "No saved songs yet."
+    private void refreshLibrary() {
+
+        if (root == null) return;
+
+        // Preserve the back button and heading.
+        while (root.getChildCount() > 3) {
+            root.removeViewAt(3);
+        }
+
+        FirebaseUser user = auth.getCurrentUser();
+
+        if (user == null) {
+            addOverview(0, 0, 0);
+
+            addSection(root, "MY COLLECTION");
+
+            addMessageCard(
+                    "SIGN IN REQUIRED",
+                    "Sign in to view your personal music library."
+            );
+
+            return;
+        }
+
+        String userId = user.getUid();
+
+        List<String> savedIds =
+                libraryManager.getSavedTrackIds();
+
+        List<String> purchasedIds =
+                libraryManager.getPurchasedTrackIds();
+
+        List<MusicPurchase> purchases =
+                purchaseManager.getUserPurchases(userId);
+
+        List<Playlist> playlists =
+                libraryManager.getPlaylists();
+
+        int paidCount = 0;
+
+        for (MusicPurchase purchase : purchases) {
+            if (purchase.isPaid()) {
+                paidCount++;
+            }
+        }
+
+        addOverview(
+                savedIds.size(),
+                purchasedIds.size(),
+                paidCount
         );
 
-        addLibraryCard(
-                root,
-                "◆",
-                "Purchased Music",
-                "Singles, EPs and albums you own.",
-                "Your purchased music will appear here."
+        // SAVED SONGS
+        addSection(root, "SAVED SONGS");
+
+        if (savedIds.isEmpty()) {
+            addMessageCard(
+                    "NO SAVED SONGS",
+                    "Songs you save will appear here."
+            );
+        } else {
+            for (String id : savedIds) {
+                addTrackIdCard(
+                        root,
+                        "♫ SAVED TRACK",
+                        id
+                );
+            }
+        }
+
+        // PURCHASED MUSIC
+        addSection(root, "PURCHASED MUSIC");
+
+        if (purchasedIds.isEmpty() && paidCount == 0) {
+            addMessageCard(
+                    "NO PURCHASES YET",
+                    "Your purchased music will appear here."
+            );
+        } else {
+            for (String id : purchasedIds) {
+                addTrackIdCard(
+                        root,
+                        "OWNED TRACK",
+                        id
+                );
+            }
+
+            for (MusicPurchase purchase : purchases) {
+                if (purchase.isPaid()) {
+                    addPurchaseCard(purchase);
+                }
+            }
+        }
+
+        // DOWNLOADS
+        addSection(root, "DOWNLOADED MUSIC");
+
+        addMessageCard(
+                "OFFLINE MUSIC NOT CONNECTED",
+                "Downloaded audio files are not yet managed " +
+                "by this library."
         );
 
-        addLibraryCard(
-                root,
-                "↓",
-                "Downloaded Music",
-                "Music available for offline listening.",
-                "No downloaded music yet."
-        );
+        // PLAYLISTS
+        addSection(root, "MY PLAYLISTS");
 
-        addSection(root, "PLAYLISTS");
+        addPlaylistSection(playlists);
 
-        addPlaylistCard(root);
-
+        // INFORMATION
         addSection(root, "LIBRARY INFORMATION");
 
-        TextView information = new TextView(this);
-        information.setText(
-                "Your library will be connected to your MminoHub " +
-                "account. Purchased music is intended to remain " +
-                "available after a Premium subscription ends. " +
-                "Premium-only offline access will follow subscription " +
-                "eligibility rules."
+        addMessageCard(
+                "YOUR MUSIC, YOUR COLLECTION",
+                "Your current library manager keeps its data " +
+                "in memory. Saved songs, playlists and purchase " +
+                "records are not yet permanently synchronized " +
+                "with your MminoHub account."
         );
-        information.setTextColor(MUTED);
-        information.setTextSize(12);
-        information.setPadding(dp(15), dp(15), dp(15), dp(15));
-        information.setBackground(background(CARD, 14));
-        root.addView(information);
 
         TextView footer = new TextView(this);
         footer.setText("MMINOHUB • YOUR MUSIC");
@@ -121,12 +235,16 @@ public class ListenerLibraryActivity extends Activity {
         footer.setTextSize(10);
         footer.setGravity(Gravity.CENTER);
         footer.setPadding(0, dp(28), 0, dp(10));
-        root.addView(footer);
 
-        setContentView(scroll);
+        root.addView(footer);
     }
 
-    private void addOverview(LinearLayout parent) {
+    private void addOverview(
+            int saved,
+            int purchased,
+            int paid
+    ) {
+
         LinearLayout card = createCard();
 
         TextView heading = new TextView(this);
@@ -134,28 +252,42 @@ public class ListenerLibraryActivity extends Activity {
         heading.setTextColor(GOLD);
         heading.setTextSize(11);
         heading.setTypeface(null, Typeface.BOLD);
+
         card.addView(heading);
 
         TextView count = new TextView(this);
-        count.setText("0 songs");
+        count.setText(
+                String.format(
+                        Locale.getDefault(),
+                        "%d saved • %d owned",
+                        saved,
+                        purchased
+                )
+        );
         count.setTextColor(WHITE);
-        count.setTextSize(25);
+        count.setTextSize(22);
         count.setTypeface(null, Typeface.BOLD);
-        count.setPadding(0, dp(8), 0, dp(4));
+        count.setPadding(0, dp(9), 0, dp(5));
+
         card.addView(count);
 
         TextView description = new TextView(this);
         description.setText(
-                "Your collection is waiting for your first Basotho tracks."
+                paid + " verified paid record(s) in current session."
         );
         description.setTextColor(MUTED);
         description.setTextSize(12);
+
         card.addView(description);
 
-        parent.addView(card);
+        root.addView(card);
     }
 
-    private void addSection(LinearLayout parent, String label) {
+    private void addSection(
+            LinearLayout parent,
+            String label
+    ) {
+
         TextView section = new TextView(this);
         section.setText(label);
         section.setTextColor(GOLD);
@@ -171,73 +303,114 @@ public class ListenerLibraryActivity extends Activity {
         parent.addView(section, params);
     }
 
-    private void addLibraryCard(
-            LinearLayout parent,
-            String symbol,
+    private void addMessageCard(
             String heading,
-            String description,
-            String emptyMessage
+            String message
     ) {
+
         LinearLayout card = createCard();
-
-        LinearLayout row = new LinearLayout(this);
-        row.setGravity(Gravity.CENTER_VERTICAL);
-        row.setOrientation(LinearLayout.HORIZONTAL);
-
-        TextView icon = new TextView(this);
-        icon.setText(symbol);
-        icon.setTextColor(GOLD);
-        icon.setTextSize(23);
-        icon.setGravity(Gravity.CENTER);
-        icon.setBackground(background(BG, 10));
-
-        LinearLayout.LayoutParams iconParams =
-                new LinearLayout.LayoutParams(dp(46), dp(46));
-
-        row.addView(icon, iconParams);
-
-        LinearLayout textColumn = new LinearLayout(this);
-        textColumn.setOrientation(LinearLayout.VERTICAL);
-        textColumn.setPadding(dp(12), 0, 0, 0);
 
         TextView title = new TextView(this);
         title.setText(heading);
         title.setTextColor(WHITE);
-        title.setTextSize(15);
+        title.setTextSize(13);
         title.setTypeface(null, Typeface.BOLD);
-        textColumn.addView(title);
+
+        card.addView(title);
 
         TextView info = new TextView(this);
-        info.setText(description);
+        info.setText(message);
         info.setTextColor(MUTED);
-        info.setTextSize(11);
-        info.setPadding(0, dp(4), 0, 0);
-        textColumn.addView(info);
+        info.setTextSize(12);
+        info.setPadding(0, dp(7), 0, 0);
 
-        row.addView(textColumn,
-                new LinearLayout.LayoutParams(0, -2, 1));
+        card.addView(info);
 
-        card.addView(row);
+        root.addView(card);
+    }
 
-        TextView empty = new TextView(this);
-        empty.setText(emptyMessage);
-        empty.setTextColor(MUTED);
-        empty.setTextSize(11);
-        empty.setPadding(0, dp(14), 0, 0);
-        card.addView(empty);
+    private void addTrackIdCard(
+            LinearLayout parent,
+            String heading,
+            String trackId
+    ) {
+
+        LinearLayout card = createCard();
+
+        TextView title = new TextView(this);
+        title.setText(heading);
+        title.setTextColor(GOLD);
+        title.setTextSize(11);
+        title.setTypeface(null, Typeface.BOLD);
+
+        card.addView(title);
+
+        TextView id = new TextView(this);
+        id.setText("Track reference: " + trackId);
+        id.setTextColor(WHITE);
+        id.setTextSize(13);
+        id.setPadding(0, dp(7), 0, 0);
+
+        card.addView(id);
 
         parent.addView(card);
     }
 
-    private void addPlaylistCard(LinearLayout parent) {
+    private void addPurchaseCard(MusicPurchase purchase) {
+
         LinearLayout card = createCard();
 
         TextView title = new TextView(this);
-        title.setText("Your playlists");
-        title.setTextColor(WHITE);
-        title.setTextSize(15);
+        title.setText("PAID PURCHASE");
+        title.setTextColor(GOLD);
+        title.setTextSize(11);
         title.setTypeface(null, Typeface.BOLD);
+
         card.addView(title);
+
+        TextView track = new TextView(this);
+        track.setText(
+                "Track: " + purchase.getTrackId()
+        );
+        track.setTextColor(WHITE);
+        track.setTextSize(13);
+        track.setPadding(0, dp(7), 0, 0);
+
+        card.addView(track);
+
+        TextView amount = new TextView(this);
+        amount.setText(
+                String.format(
+                        Locale.getDefault(),
+                        "Amount: %s %.2f",
+                        purchase.getCurrency() == null
+                                ? ""
+                                : purchase.getCurrency(),
+                        purchase.getAmount()
+                )
+        );
+        amount.setTextColor(MUTED);
+        amount.setTextSize(12);
+        amount.setPadding(0, dp(5), 0, 0);
+
+        card.addView(amount);
+
+        root.addView(card);
+    }
+
+    private void addPlaylistSection(
+            List<Playlist> playlists
+    ) {
+
+        LinearLayout card = createCard();
+
+        TextView heading = new TextView(this);
+        heading.setText("Your playlists");
+        heading.setTextColor(WHITE);
+        heading.setTextSize(15);
+        heading.setTypeface(null, Typeface.BOLD);
+
+        card.addView(heading);
 
         TextView info = new TextView(this);
         info.setText(
@@ -246,13 +419,50 @@ public class ListenerLibraryActivity extends Activity {
         info.setTextColor(MUTED);
         info.setTextSize(12);
         info.setPadding(0, dp(6), 0, dp(14));
+
         card.addView(info);
 
-        TextView empty = new TextView(this);
-        empty.setText("No playlists created yet.");
-        empty.setTextColor(MUTED);
-        empty.setTextSize(11);
-        card.addView(empty);
+        if (playlists.isEmpty()) {
+
+            TextView empty = new TextView(this);
+            empty.setText("No playlists created yet.");
+            empty.setTextColor(MUTED);
+            empty.setTextSize(12);
+
+            card.addView(empty);
+
+        } else {
+
+            for (Playlist playlist : playlists) {
+
+                TextView item = new TextView(this);
+
+                item.setText(
+                        playlist.getName()
+                                + " • "
+                                + playlist.getTrackCount()
+                                + " tracks"
+                );
+
+                item.setTextColor(WHITE);
+                item.setTextSize(13);
+                item.setPadding(
+                        dp(10), dp(12), dp(10), dp(12)
+                );
+                item.setBackground(background(BG, 9));
+
+                LinearLayout.LayoutParams params =
+                        new LinearLayout.LayoutParams(-1, -2);
+
+                params.bottomMargin = dp(8);
+
+                card.addView(item, params);
+
+                item.setOnClickListener(v ->
+                        showPlaylistDetails(playlist)
+                );
+            }
+        }
 
         TextView create = new TextView(this);
         create.setText("+  CREATE PLAYLIST");
@@ -262,22 +472,132 @@ public class ListenerLibraryActivity extends Activity {
         create.setPadding(0, dp(18), 0, dp(3));
 
         create.setOnClickListener(v ->
-                Toast.makeText(
-                        this,
-                        "Playlist creation will be enabled " +
-                        "when library storage is connected.",
-                        Toast.LENGTH_LONG
-                ).show()
+                showCreatePlaylistDialog()
         );
 
         card.addView(create);
-        parent.addView(card);
+
+        root.addView(card);
+    }
+
+    private void showCreatePlaylistDialog() {
+
+        FirebaseUser user = auth.getCurrentUser();
+
+        if (user == null) {
+            showMessage("Please sign in first.");
+            return;
+        }
+
+        EditText nameInput = new EditText(this);
+        nameInput.setSingleLine(true);
+        nameInput.setHint("Playlist name");
+        nameInput.setTextColor(WHITE);
+        nameInput.setHintTextColor(MUTED);
+
+        LinearLayout container = new LinearLayout(this);
+        container.setPadding(
+                dp(20), dp(8), dp(20), dp(4)
+        );
+        container.addView(nameInput);
+
+        AlertDialog dialog = new AlertDialog.Builder(this)
+                .setTitle("Create playlist")
+                .setView(container)
+                .setNegativeButton("CANCEL", null)
+                .setPositiveButton("CREATE", null)
+                .create();
+
+        dialog.setOnShowListener(d -> {
+
+            dialog.getButton(
+                    AlertDialog.BUTTON_POSITIVE
+            ).setOnClickListener(v -> {
+
+                String name = nameInput.getText()
+                        .toString()
+                        .trim();
+
+                if (name.isEmpty()) {
+                    nameInput.setError(
+                            "Enter a playlist name"
+                    );
+                    return;
+                }
+
+                String id = "playlist_"
+                        + System.currentTimeMillis();
+
+                Playlist playlist = new Playlist(
+                        id,
+                        name,
+                        user.getUid(),
+                        "",
+                        "",
+                        false
+                );
+
+                boolean added =
+                        libraryManager.addPlaylist(playlist);
+
+                if (added) {
+                    dialog.dismiss();
+                    showMessage(
+                            "Playlist created in this session."
+                    );
+                    refreshLibrary();
+                } else {
+                    showMessage(
+                            "Could not create playlist."
+                    );
+                }
+            });
+        });
+
+        dialog.show();
+    }
+
+    private void showPlaylistDetails(Playlist playlist) {
+
+        String message =
+                "Name: " + playlist.getName()
+                + "\nTracks: " + playlist.getTrackCount()
+                + "\nVisibility: "
+                + (playlist.isPublicPlaylist()
+                    ? "Public"
+                    : "Private")
+                + "\n\nPlaylist storage is currently local "
+                + "to this app session.";
+
+        new AlertDialog.Builder(this)
+                .setTitle("Playlist details")
+                .setMessage(message)
+                .setPositiveButton("CLOSE", null)
+                .setNegativeButton(
+                        "DELETE",
+                        (dialog, which) -> {
+
+                            boolean removed =
+                                    libraryManager.removePlaylist(
+                                            playlist.getId()
+                                    );
+
+                            if (removed) {
+                                showMessage("Playlist removed.");
+                                refreshLibrary();
+                            }
+                        }
+                )
+                .show();
     }
 
     private LinearLayout createCard() {
+
         LinearLayout card = new LinearLayout(this);
         card.setOrientation(LinearLayout.VERTICAL);
-        card.setPadding(dp(15), dp(15), dp(15), dp(15));
+        card.setPadding(
+                dp(15), dp(15), dp(15), dp(15)
+        );
         card.setBackground(background(CARD, 14));
 
         LinearLayout.LayoutParams params =
@@ -286,14 +606,33 @@ public class ListenerLibraryActivity extends Activity {
         params.bottomMargin = dp(11);
 
         card.setLayoutParams(params);
+
         return card;
     }
 
-    private GradientDrawable background(int color, int radius) {
-        GradientDrawable drawable = new GradientDrawable();
+    private GradientDrawable background(
+            int color,
+            int radius
+    ) {
+
+        GradientDrawable drawable =
+                new GradientDrawable();
+
         drawable.setColor(color);
         drawable.setCornerRadius(dp(radius));
-        drawable.setStroke(dp(1), Color.rgb(49, 62, 77));
+        drawable.setStroke(
+                dp(1),
+                Color.rgb(49, 62, 77)
+        );
+
         return drawable;
+    }
+
+    private void showMessage(String message) {
+        Toast.makeText(
+                this,
+                message,
+                Toast.LENGTH_LONG
+        ).show();
     }
 }
